@@ -13,6 +13,8 @@ public final class ItemStackCodec {
 
     private ItemStackCodec() {}
 
+    // Preserve the existing serialized item format so previously saved graves remain readable.
+    @SuppressWarnings("deprecation")
     public static String serialize(ItemStack item) {
         if (item == null) return null;
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -25,6 +27,8 @@ public final class ItemStackCodec {
         }
     }
 
+    // Preserve the existing serialized item format so previously saved graves remain readable.
+    @SuppressWarnings("deprecation")
     public static ItemStack deserialize(String data) {
         if (data == null || data.isEmpty()) return null;
         try (ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(data));
