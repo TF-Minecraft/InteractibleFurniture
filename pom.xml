@@ -18,9 +18,8 @@
         <dependency>
             <groupId>local</groupId>
             <artifactId>gson</artifactId>
-            <version>2.10.1</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libs/gson-2.10.1.jar</systemPath>
+            <version>2.10.1-tfmc-4241c14a7727</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>io.papermc.paper</groupId>
@@ -44,23 +43,20 @@
         <dependency>
             <groupId>local</groupId>
             <artifactId>joml</artifactId>
-            <version>1.10.8</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libs/joml-1.10.8.jar</systemPath>
+            <version>1.10.8-tfmc-bf1951014517</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>local</groupId>
             <artifactId>MythicMobs</artifactId>
-            <version>5.8.0-SNAPSHOT</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libs/MythicMobs-5.8.0-SNAPSHOT.jar</systemPath>
+            <version>5.8.0-SNAPSHOT-tfmc-575aa30aee8e</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>local</groupId>
             <artifactId>ProtocolLib</artifactId>
-            <version>1.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libs/ProtocolLib.jar</systemPath>
+            <version>1.0-tfmc-ee2e7ab9b538</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
