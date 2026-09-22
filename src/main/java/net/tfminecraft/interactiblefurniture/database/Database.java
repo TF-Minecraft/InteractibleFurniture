@@ -1,0 +1,454 @@
+package net.tfminecraft.interactiblefurniture.database;
+
+import com.google.gson.*;
+import net.tfminecraft.interactiblefurniture.InteractibleFurniture;
+import net.tfminecraft.interactiblefurniture.furniture.Furniture;
+import net.tfminecraft.interactiblefurniture.furniture.PlacedFurnitureSlot;
+import net.tfminecraft.interactiblefurniture.furniture.PlacedSlot;
+import net.tfminecraft.interactiblefurniture.furniture.SlotType;
+import net.tfminecraft.interactiblefurniture.loaders.FurnitureLoader;
+import net.tfminecraft.interactiblefurniture.furniture.data.ModelData;
+import net.tfminecraft.interactiblefurniture.enums.Display;
+import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.block.BlockFace;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.ItemDisplay;
+import org.bukkit.inventory.ItemStack;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.util.*;
+import java.util.function.Consumer;
+
+/**
+ * Handles saving and loading furniture data to disk.
+ * Each chunk's furniture is stored in its own JSON file:
+ *   data/chunks/<world>/<chunkX>_<chunkZ>.json
+ */
+public class Database {
+
+    private static final Gson GSON = new GsonBuilder()
+            .setPrettyPrinting()
+            .create();
+
+    private final File chunkDataFolder;
+
+    public Database() {
+        File baseFolder = new File(InteractibleFurniture.getInstance().getDataFolder(), "data/chunks");
+        if (!baseFolder.exists()) baseFolder.mkdirs();
+        this.chunkDataFolder = baseFolder;
+    }
+
+    // ------------------------------------------------------------------------
+    //  CHUNK STRUCTURE
+    // ------------------------------------------------------------------------
+
+    public record ChunkKey(String world, int x, int z) {
+        public static ChunkKey fromLocation(Location loc) {
+            return new ChunkKey(
+                    loc.getWorld().getName(),
+                    loc.getBlockX() >> 4,
+                    loc.getBlockZ() >> 4
+            );
+        }
+
+        public static ChunkKey fromChunk(Chunk c) {
+            return new ChunkKey(c.getWorld().getName(), c.getX(), c.getZ());
+        }
+
+        File toFile(File root) {
+            File worldDir = new File(root, world);
+            if (!worldDir.exists()) worldDir.mkdirs();
+            return new File(worldDir, x + "_" + z + ".json");
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    //  SAVE / LOAD CHUNK
+    // ------------------------------------------------------------------------
+
+    public void saveChunk(String world, int chunkX, int chunkZ, Collection<Furniture> furniture) {
+        File file = new ChunkKey(world, chunkX, chunkZ).toFile(chunkDataFolder);
+        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
+        File bak = new File(file.getParentFile(), file.getName() + ".bak");
+
+        List<Map<String, Object>> serialized = furniture.stream()
+                .map(this::serializeFurniture)
+                .toList();
+
+        try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
+            GSON.toJson(Map.of("furniture", serialized), writer);
+        } catch (IOException e) {
+            InteractibleFurniture.getInstance().getLogger()
+                    .warning("Failed to save furniture for chunk " + world + " " + chunkX + "," + chunkZ);
+            e.printStackTrace();
+            return;
+        }
+
+        try {
+            if (file.exists()) {
+                Files.copy(file.toPath(), bak.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            try {
+                Files.move(tmp.toPath(), file.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicFailed) {
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            InteractibleFurniture.getInstance().getLogger()
+                    .warning("Failed to replace furniture file for chunk " + world + " " + chunkX + "," + chunkZ);
+            e.printStackTrace();
+        }
+    }
+
+    public List<Furniture> loadChunk(String world, int chunkX, int chunkZ) {
+        File file = new ChunkKey(world, chunkX, chunkZ).toFile(chunkDataFolder);
+        File bak = new File(file.getParentFile(), file.getName() + ".bak");
+
+        List<Furniture> loaded = tryReadChunkFile(file);
+        if (loaded != null) return loaded;
+
+        loaded = tryReadChunkFile(bak);
+        if (loaded != null) {
+            InteractibleFurniture.getInstance().getLogger()
+                    .warning("Loaded furniture backup for chunk " + world + " " + chunkX + "," + chunkZ);
+            return loaded;
+        }
+        return List.of();
+    }
+
+    public void visitSavedFurniture(Consumer<Furniture> visitor) {
+        if (visitor == null || chunkDataFolder == null || !chunkDataFolder.isDirectory()) {
+            return;
+        }
+        File[] worlds = chunkDataFolder.listFiles(File::isDirectory);
+        if (worlds == null) {
+            return;
+        }
+        for (File worldDir : worlds) {
+            File[] files = worldDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (files == null) {
+                continue;
+            }
+            for (File file : files) {
+                if (file.getName().endsWith(".json.bak") || file.getName().endsWith(".json.tmp")) {
+                    continue;
+                }
+                List<Furniture> loaded = tryReadChunkFile(file);
+                if (loaded == null) {
+                    continue;
+                }
+                for (Furniture furniture : loaded) {
+                    if (furniture == null || furniture.isCarried() || furniture.isPersistedCarried()) {
+                        continue;
+                    }
+                    visitor.accept(furniture);
+                }
+            }
+        }
+    }
+
+    private List<Furniture> tryReadChunkFile(File file) {
+        if (file == null || !file.exists()) return null;
+
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            JsonElement parsed = JsonParser.parseReader(reader);
+            if (parsed == null || !parsed.isJsonObject()) return null;
+            JsonObject root = parsed.getAsJsonObject();
+            if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
+                return List.of();
+            }
+            JsonArray arr = root.getAsJsonArray("furniture");
+
+            List<Furniture> list = new ArrayList<>();
+            for (JsonElement el : arr) {
+                if (!el.isJsonObject()) continue;
+                Furniture f = deserializeFurniture(el.getAsJsonObject());
+                if (f != null) list.add(f);
+            }
+            return list;
+        } catch (Exception e) {
+            InteractibleFurniture.getInstance().getLogger()
+                    .warning("Failed to parse furniture file " + file.getName() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    //  FURNITURE SERIALIZATION
+    // ------------------------------------------------------------------------
+
+    private Map<String, Object> serializeFurniture(Furniture f) {
+        return serializeFurnitureState(f, false);
+    }
+
+    private Map<String, Object> serializeFurnitureState(Furniture f, boolean attached) {
+        Map<String, Object> obj = new HashMap<>();
+        obj.put("id", f.getId());
+        obj.put("type", f.getId());
+        obj.put("entityId", f.getEntityId().toString());
+        obj.put("yaw", f.getYaw());
+
+        if (!attached) {
+            obj.put("location", serializeLocation(f.getLoc()));
+            obj.put("carried", f.isCarried() || f.isPersistedCarried());
+
+            f.getOriginBlockLocation().ifPresent(loc -> obj.put("originBlock", serializeLocation(loc)));
+            f.getOriginBlockFace().ifPresent(face -> obj.put("originBlockFace", face.name()));
+
+            if (!f.getBarrierBlocks().isEmpty()) {
+                obj.put("barrierBlocks", f.getBarrierBlocks().stream()
+                        .map(b -> serializeLocation(b.getLocation()))
+                        .toList());
+            }
+
+            if (f.getInteractionEntityId() != null) {
+                obj.put("interactionEntityId", f.getInteractionEntityId().toString());
+            }
+        }
+
+        serializeActiveSlots(f, obj);
+        serializeActiveFurnitureSlots(f, obj);
+
+        Map<String, Object> dataMap = new HashMap<>();
+
+        if (!f.getVariables().isEmpty()) {
+            dataMap.put("variables", f.getVariables());
+        }
+
+        if (f.getModelOverride() != null) {
+            ModelData m = f.getModelOverride();
+            dataMap.put("modelOverride", Map.of(
+                    "display", m.getDisplay().name(),
+                    "model", m.getModel()
+            ));
+        }
+
+        if (!dataMap.isEmpty()) {
+            obj.put("data", dataMap);
+        }
+
+        return obj;
+    }
+
+    private void serializeActiveSlots(Furniture f, Map<String, Object> obj) {
+        if (f.getActiveSlots().isEmpty()) {
+            return;
+        }
+        Map<String, Object> slots = new HashMap<>();
+        for (var entry : f.getActiveSlots().entrySet()) {
+            PlacedSlot slot = entry.getValue();
+            Map<String, Object> slotMap = new HashMap<>();
+            if (slot.getDisplayStandId() != null) {
+                slotMap.put("displayStandId", slot.getDisplayStandId().toString());
+            }
+            ItemStack item = slot.getCurrentItem();
+            if (item == null && slot.getDisplayStandId() != null) {
+                Entity stand = Bukkit.getEntity(slot.getDisplayStandId());
+                if (stand instanceof ItemDisplay display) {
+                    item = display.getItemStack();
+                }
+            }
+            String encoded = ItemStackCodec.serialize(item);
+            if (encoded != null) {
+                slotMap.put("item", encoded);
+            }
+            slots.put(entry.getKey(), slotMap);
+        }
+        obj.put("activeSlots", slots);
+    }
+
+    private void serializeActiveFurnitureSlots(Furniture f, Map<String, Object> obj) {
+        if (f.getActiveFurnitureSlots().isEmpty()) {
+            return;
+        }
+        Map<String, Object> furnitureSlots = new HashMap<>();
+        for (var entry : f.getActiveFurnitureSlots().entrySet()) {
+            PlacedFurnitureSlot placed = entry.getValue();
+            Furniture nested = placed.getNested();
+            if (nested == null) {
+                continue;
+            }
+            furnitureSlots.put(entry.getKey(), serializeFurnitureState(nested, true));
+        }
+        if (!furnitureSlots.isEmpty()) {
+            obj.put("activeFurnitureSlots", furnitureSlots);
+        }
+    }
+
+    private Furniture deserializeFurniture(JsonObject obj) {
+        return deserializeFurnitureState(obj, false, null);
+    }
+
+    private Furniture deserializeFurnitureState(JsonObject obj, boolean attached, Furniture parent) {
+        String typeId = obj.has("type") ? obj.get("type").getAsString() : obj.get("id").getAsString();
+        if (FurnitureLoader.getByString(typeId) == null) return null;
+
+        UUID entityId = UUID.fromString(obj.get("entityId").getAsString());
+        Location loc;
+        Location originLoc = null;
+        BlockFace originFace = null;
+
+        if (attached) {
+            if (parent == null || parent.getLoc() == null) {
+                return null;
+            }
+            loc = parent.getLoc().clone();
+        } else {
+            loc = deserializeLocation(obj.getAsJsonObject("location"));
+            if (loc == null) return null;
+
+            if (obj.has("originBlock")) {
+                originLoc = deserializeLocation(obj.getAsJsonObject("originBlock"));
+            }
+            if (obj.has("originBlockFace")) {
+                try {
+                    originFace = BlockFace.valueOf(obj.get("originBlockFace").getAsString());
+                } catch (Exception ignored) {}
+            }
+        }
+
+        Furniture furniture = new Furniture(typeId, loc, entityId, originLoc, originFace);
+
+        if (obj.has("yaw")) {
+            furniture.setYaw(obj.get("yaw").getAsFloat());
+        }
+        if (!attached && obj.has("carried") && obj.get("carried").getAsBoolean()) {
+            furniture.setPersistedCarried(true);
+        }
+
+        if (!attached && obj.has("interactionEntityId")) {
+            try {
+                furniture.setInteractionEntityId(UUID.fromString(obj.get("interactionEntityId").getAsString()));
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        if (!attached && obj.has("barrierBlocks") && obj.get("barrierBlocks").isJsonArray()) {
+            for (JsonElement el : obj.getAsJsonArray("barrierBlocks")) {
+                if (!el.isJsonObject()) continue;
+                Location barrierLoc = deserializeLocation(el.getAsJsonObject());
+                if (barrierLoc == null) continue;
+                furniture.addBarrierBlock(barrierLoc.getBlock());
+            }
+        }
+
+        deserializeActiveSlots(obj, furniture);
+        deserializeActiveFurnitureSlots(obj, furniture);
+
+        if (obj.has("data")) {
+            JsonObject dataObj = obj.getAsJsonObject("data");
+            if (dataObj.has("variables")) {
+                Map<String, Object> vars = new HashMap<>();
+                JsonObject varObj = dataObj.getAsJsonObject("variables");
+                for (String key : varObj.keySet()) {
+                    JsonElement v = varObj.get(key);
+                    if (v.isJsonPrimitive()) {
+                        JsonPrimitive p = v.getAsJsonPrimitive();
+                        if (p.isNumber()) vars.put(key, p.getAsNumber());
+                        else if (p.isBoolean()) vars.put(key, p.getAsBoolean());
+                        else vars.put(key, p.getAsString());
+                    }
+                }
+                furniture.setVariables(vars);
+            }
+
+            if (dataObj.has("modelOverride")) {
+                JsonObject o = dataObj.getAsJsonObject("modelOverride");
+                try {
+                    Display d = Display.valueOf(o.get("display").getAsString());
+                    String model = o.get("model").getAsString();
+                    furniture.setModelOverride(new ModelData(d, model));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        return furniture;
+    }
+
+    private void deserializeActiveSlots(JsonObject obj, Furniture furniture) {
+        if (!obj.has("activeSlots")) {
+            return;
+        }
+        JsonObject slots = obj.getAsJsonObject("activeSlots");
+        for (String key : slots.keySet()) {
+            JsonObject sObj = slots.getAsJsonObject(key);
+            if (furniture.getType() == null || furniture.getType().getSlot(key) == null) continue;
+            PlacedSlot slot = furniture.getOrCreatePlacedSlot(key);
+
+            if (sObj.has("displayStandId")) {
+                UUID dispId = UUID.fromString(sObj.get("displayStandId").getAsString());
+                slot.setDisplayStandId(dispId);
+            }
+            if (sObj.has("item")) {
+                ItemStack item = ItemStackCodec.deserialize(sObj.get("item").getAsString());
+                if (item != null) {
+                    slot.setModel(item);
+                }
+            }
+        }
+    }
+
+    private void deserializeActiveFurnitureSlots(JsonObject obj, Furniture furniture) {
+        if (!obj.has("activeFurnitureSlots")) {
+            return;
+        }
+        JsonObject furnitureSlots = obj.getAsJsonObject("activeFurnitureSlots");
+        for (String slotId : furnitureSlots.keySet()) {
+            if (furniture.getType() == null) continue;
+            var slotDef = furniture.getType().getSlot(slotId);
+            if (slotDef == null || slotDef.getSlotType() != SlotType.FURNITURE) continue;
+
+            JsonObject nestedObj = furnitureSlots.getAsJsonObject(slotId);
+            Furniture nested = deserializeFurnitureState(nestedObj, true, furniture);
+            if (nested == null) continue;
+
+            nested.setAttachment(furniture.getEntityId(), slotId);
+            PlacedFurnitureSlot placed = furniture.getOrCreatePlacedFurnitureSlot(slotId);
+            placed.setNested(nested);
+            placed.setParent(furniture);
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    //  LOCATION
+    // ------------------------------------------------------------------------
+
+    private Map<String, Object> serializeLocation(Location loc) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("world", loc.getWorld().getName());
+        m.put("x", loc.getX());
+        m.put("y", loc.getY());
+        m.put("z", loc.getZ());
+        return m;
+    }
+
+    private Location deserializeLocation(JsonObject obj) {
+        if (obj == null) return null;
+        World w = Bukkit.getWorld(obj.get("world").getAsString());
+        if (w == null) return null;
+        return new Location(
+                w,
+                obj.get("x").getAsDouble(),
+                obj.get("y").getAsDouble(),
+                obj.get("z").getAsDouble()
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    //  EVENTS
+    // ------------------------------------------------------------------------
+
+    public void saveChunk(Chunk chunk, Collection<Furniture> furniture) {
+        saveChunk(chunk.getWorld().getName(), chunk.getX(), chunk.getZ(), furniture);
+    }
+
+    public List<Furniture> loadChunk(Chunk chunk) {
+        return loadChunk(chunk.getWorld().getName(), chunk.getX(), chunk.getZ());
+    }
+}

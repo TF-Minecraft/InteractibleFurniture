@@ -1,4 +1,4 @@
-main: net.tfminecraft.InteractibleFurniture
+main: net.tfminecraft.interactiblefurniture.InteractibleFurniture
 api-version: '1.21.10'
 name: InteractibleFurniture
 version: ${project.version}
