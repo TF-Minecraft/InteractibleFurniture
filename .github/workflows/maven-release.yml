@@ -47,7 +47,7 @@ jobs:
           [[ "${TAG^^}" != *SNAPSHOT* ]] || exit 1
 
       - name: Install shared plugin dependencies
-        uses: TF-Minecraft/TLibs/.github/actions/setup-plugins@2eefce8d0d648a3c9a2587d64274691086135821
+        uses: TF-Minecraft/TLibs/.github/actions/setup-plugins@4f7a3545063cb2e8d06a034687c817ab863f0835
         with:
           mode: pinned
 
