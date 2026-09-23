@@ -47,18 +47,6 @@
             <version>1.10.8-tfmc-bf1951014517</version>
             <scope>provided</scope>
         </dependency>
-        <dependency>
-            <groupId>local</groupId>
-            <artifactId>MythicMobs</artifactId>
-            <version>5.8.0-SNAPSHOT-tfmc-575aa30aee8e</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>local</groupId>
-            <artifactId>ProtocolLib</artifactId>
-            <version>1.0-tfmc-ee2e7ab9b538</version>
-            <scope>provided</scope>
-        </dependency>
     </dependencies>
 
     <repositories>
