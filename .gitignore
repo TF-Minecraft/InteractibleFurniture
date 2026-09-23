@@ -55,3 +55,6 @@ Desktop.ini
 
 # Removed runtime snapshots or generated archives
 /src/main/resources/data/chunks/
+
+# Technical documentation is maintained in TF-Minecraft/Docs
+/docs/
