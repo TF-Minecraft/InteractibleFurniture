@@ -110,11 +110,7 @@ public final class IfCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        if (carried.isCarried()) {
-            carried.stopCarrying();
-        }
-
-        if (FurnitureAttachmentHandler.attach(parent, slotId, carried, player)) {
+        if (FurnitureAttachmentHandler.attachFromCarried(parent, slotId, carried, player)) {
             player.sendMessage("Attached " + carried.getId() + " to " + parent.getId() + " slot " + slotId + ".");
         } else {
             player.sendMessage("Attach failed.");

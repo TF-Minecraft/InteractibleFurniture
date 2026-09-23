@@ -27,6 +27,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.inventory.ItemStack;
@@ -77,6 +78,24 @@ public class FurnitureManager implements Listener {
             if(f.getHolder().equals(p)) return f;
         }
         return null;
+    }
+
+    /**
+     * Drop and clear furniture still being carried by a player.
+     * Used when carry cannot continue (quit, offline holder, plugin disable).
+     */
+    public boolean releaseCarried(Player player) {
+        Furniture carried = getByCarrier(player);
+        if (carried == null) {
+            return false;
+        }
+        carried.remove(true);
+        return true;
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        releaseCarried(event.getPlayer());
     }
 
     public void start() {

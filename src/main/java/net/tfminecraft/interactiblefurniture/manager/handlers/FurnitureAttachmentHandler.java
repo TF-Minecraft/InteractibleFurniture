@@ -65,10 +65,22 @@ public final class FurnitureAttachmentHandler {
     }
 
     public static boolean attachFromCarried(Furniture parent, String slotId, Furniture nested, Player player) {
-        if (nested != null && nested.isCarried()) {
+        if (nested == null) {
+            return false;
+        }
+        boolean wasCarrying = nested.isCarried();
+        Player holder = nested.getHolder();
+        if (wasCarrying) {
             nested.stopCarrying();
         }
         if (!attach(parent, slotId, nested, player)) {
+            // Attach can fail after stopCarrying (cancelled event, full slot, etc).
+            // Restore carry so the piece does not become stranded without an origin.
+            if (wasCarrying && holder != null && holder.isOnline()) {
+                nested.carry(holder);
+            } else if (wasCarrying) {
+                nested.remove(true);
+            }
             return false;
         }
         parent.getLoc().getWorld().playSound(parent.getLoc(), Sound.ENTITY_ITEM_FRAME_ADD_ITEM, 1f, 1f);
