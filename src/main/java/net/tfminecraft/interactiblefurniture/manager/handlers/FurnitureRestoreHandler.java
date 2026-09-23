@@ -37,7 +37,7 @@ public class FurnitureRestoreHandler {
             return null;
         }
 
-        if (furniture.isPersistedCarried()) {
+        if (furniture.isPersistedCarried() || isStranded(furniture)) {
             cleanupCarried(furniture);
             return null;
         }
@@ -187,6 +187,25 @@ public class FurnitureRestoreHandler {
         }
     }
 
+    /**
+     * Carrying clears origin/barriers. If carry is interrupted without a clean
+     * place/drop (failed attach, crash mid-carry with a cleared carried flag),
+     * the piece can be restored without any way for players to interact or remove it.
+     */
+    private static boolean isStranded(Furniture furniture) {
+        if (furniture.isAttached()) {
+            return false;
+        }
+        FurnitureType type = furniture.getType();
+        if (type == null) {
+            return true;
+        }
+        if (type.isSolid()) {
+            return furniture.getBarrierBlocks().isEmpty();
+        }
+        return furniture.getOriginBlockLocation().isEmpty();
+    }
+
     private static void cleanupCarried(Furniture furniture) {
         Location dropLoc = furniture.getLoc();
         FurnitureType type = furniture.getType();
@@ -195,13 +214,22 @@ public class FurnitureRestoreHandler {
             if (furnitureItem != null) {
                 dropLoc.getWorld().dropItemNaturally(dropLoc, furnitureItem);
             }
-        }
-        furniture.removeInteractionEntity();
-        for (PlacedSlot slot : furniture.getActiveSlots().values()) {
-            if (dropLoc != null) {
+            for (PlacedSlot slot : new java.util.ArrayList<>(furniture.getActiveSlots().values())) {
+                ItemStack item = slot.getCurrentItem();
+                if (item != null) {
+                    dropLoc.getWorld().dropItemNaturally(dropLoc, item);
+                }
                 slot.removeDisplayStand(dropLoc.getWorld());
             }
+        } else {
+            for (PlacedSlot slot : furniture.getActiveSlots().values()) {
+                if (dropLoc != null && dropLoc.getWorld() != null) {
+                    slot.removeDisplayStand(dropLoc.getWorld());
+                }
+            }
         }
+        furniture.clearActiveSlots();
+        furniture.removeInteractionEntity();
         Entity entity = Bukkit.getEntity(furniture.getEntityId());
         if (entity != null) entity.remove();
     }

@@ -302,6 +302,12 @@ public class Furniture {
     public void tick() {
         if (!isCarried()) return;
 
+        // Holder left or went invalid mid-carry (quit race, kick, etc.)
+        if (holder == null || !holder.isOnline()) {
+            remove(true);
+            return;
+        }
+
         ItemDisplay base = (ItemDisplay) Bukkit.getEntity(entityId);
         if (base == null) return;
 
