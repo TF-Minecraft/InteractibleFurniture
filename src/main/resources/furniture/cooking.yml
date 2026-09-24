@@ -21,6 +21,7 @@ frying_pan:
           - "c.meat(type=meat_poultry)"
           - "c.meat(type=meat_poultry_leg)"
           - "c.meat(type=sausage)"
+          - "c.egg(type=egg)"
         display:
           rotation:
             x: 0
