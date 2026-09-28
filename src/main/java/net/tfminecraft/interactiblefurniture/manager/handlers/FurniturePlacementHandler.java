@@ -98,6 +98,9 @@ public class FurniturePlacementHandler {
             return false;
         }
 
+        // Placing moves the carried display; without it the piece cannot be placed.
+        if (!(Bukkit.getEntity(carried.getEntityId()) instanceof ItemDisplay)) return false;
+
         // Spawn the new display entity
         ItemDisplay display = spawnDisplayEntity(type, target, yaw, face);
         if (display == null) return false;
@@ -107,6 +110,7 @@ public class FurniturePlacementHandler {
         carried.setYaw(yaw);
 
         InteractibleFurniture.getInstance().getFurnitureManager().persistFurniture(carried);
+        InteractibleFurniture.getInstance().getFurnitureManager().discardCarriedRecord(carried);
 
         return true;
     }

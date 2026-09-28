@@ -7,6 +7,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import net.tfminecraft.interactiblefurniture.command.IfCommand;
 import net.tfminecraft.interactiblefurniture.debug.InteractionDebugService;
 import net.tfminecraft.interactiblefurniture.manager.FurnitureManager;
+import net.tfminecraft.interactiblefurniture.protection.FurnitureProtection;
 
 public class InteractibleFurniture extends JavaPlugin{
     private final FurnitureManager furnitureManager = new FurnitureManager();
@@ -19,6 +20,7 @@ public class InteractibleFurniture extends JavaPlugin{
         // register our furniture manager
         getServer().getPluginManager().registerEvents(furnitureManager, this);
         getServer().getPluginManager().registerEvents(interactionDebugService, this);
+        FurnitureProtection.hook(this);
         furnitureManager.start();
         furnitureManager.loadAlreadyLoadedChunks();
 
@@ -39,6 +41,8 @@ public class InteractibleFurniture extends JavaPlugin{
         interactionDebugService.stop();
         furnitureManager.deleteCarried();
         furnitureManager.saveAllLoadedChunks();
+        // Pending removals are only kept in memory; this is their last chance.
+        furnitureManager.retryPendingCarriedRecords();
         getLogger().info("InteractibleFurniture has been disabled.");
     }
 

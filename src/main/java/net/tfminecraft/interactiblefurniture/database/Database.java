@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -74,24 +75,34 @@ public class Database {
 
     public void saveChunk(String world, int chunkX, int chunkZ, Collection<Furniture> furniture) {
         File file = new ChunkKey(world, chunkX, chunkZ).toFile(chunkDataFolder);
-        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
-        File bak = new File(file.getParentFile(), file.getName() + ".bak");
 
         List<Map<String, Object>> serialized = furniture.stream()
                 .map(this::serializeFurniture)
                 .toList();
 
+        writeChunkFile(file, Map.of("furniture", serialized), true, "chunk " + world + " " + chunkX + "," + chunkZ);
+    }
+
+    /**
+     * Writes a chunk file through a temporary file so a failed write never
+     * leaves it half written. When {@code keepBackup} is set, the previous file
+     * is copied to {@code .bak} first.
+     */
+    private boolean writeChunkFile(File file, Object content, boolean keepBackup, String label) {
+        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
+        File bak = new File(file.getParentFile(), file.getName() + ".bak");
+
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
-            GSON.toJson(Map.of("furniture", serialized), writer);
+            GSON.toJson(content, writer);
         } catch (IOException e) {
             InteractibleFurniture.getInstance().getLogger()
-                    .warning("Failed to save furniture for chunk " + world + " " + chunkX + "," + chunkZ);
+                    .warning("Failed to save furniture for " + label);
             e.printStackTrace();
-            return;
+            return false;
         }
 
         try {
-            if (file.exists()) {
+            if (keepBackup && file.exists()) {
                 Files.copy(file.toPath(), bak.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
             try {
@@ -100,10 +111,12 @@ public class Database {
             } catch (IOException atomicFailed) {
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
+            return true;
         } catch (IOException e) {
             InteractibleFurniture.getInstance().getLogger()
-                    .warning("Failed to replace furniture file for chunk " + world + " " + chunkX + "," + chunkZ);
+                    .warning("Failed to replace furniture file for " + label);
             e.printStackTrace();
+            return false;
         }
     }
 
@@ -155,19 +168,12 @@ public class Database {
     }
 
     private List<Furniture> tryReadChunkFile(File file) {
-        if (file == null || !file.exists()) return null;
+        JsonObject root = readChunkJson(file);
+        if (root == null) return null;
 
-        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
-            JsonElement parsed = JsonParser.parseReader(reader);
-            if (parsed == null || !parsed.isJsonObject()) return null;
-            JsonObject root = parsed.getAsJsonObject();
-            if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
-                return List.of();
-            }
-            JsonArray arr = root.getAsJsonArray("furniture");
-
+        try {
             List<Furniture> list = new ArrayList<>();
-            for (JsonElement el : arr) {
+            for (JsonElement el : furnitureRecords(root)) {
                 if (!el.isJsonObject()) continue;
                 Furniture f = deserializeFurniture(el.getAsJsonObject());
                 if (f != null) list.add(f);
@@ -177,6 +183,233 @@ public class Database {
             InteractibleFurniture.getInstance().getLogger()
                     .warning("Failed to parse furniture file " + file.getName() + ": " + e.getMessage());
             return null;
+        }
+    }
+
+    private JsonObject readChunkJson(File file) {
+        if (file == null || !file.exists()) return null;
+
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            JsonElement parsed = JsonParser.parseReader(reader);
+            if (parsed == null || !parsed.isJsonObject()) return null;
+            return parsed.getAsJsonObject();
+        } catch (Exception e) {
+            InteractibleFurniture.getInstance().getLogger()
+                    .warning("Failed to parse furniture file " + file.getName() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * A chunk file's JSON, or null if loading the chunk would not use it: it
+     * is missing, does not parse, or its records cannot be read.
+     */
+    private JsonObject readLoadableChunkJson(File file) {
+        return tryReadChunkFile(file) != null ? readChunkJson(file) : null;
+    }
+
+    private static JsonArray furnitureRecords(JsonObject root) {
+        if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
+            return new JsonArray();
+        }
+        return root.getAsJsonArray("furniture");
+    }
+
+    // ------------------------------------------------------------------------
+    //  CARRIED RECORDS
+    // ------------------------------------------------------------------------
+
+    /**
+     * Removes one piece's carried record from a chunk's saved file.
+     *
+     * Carrying saves the piece, marked as carried, into the chunk it was picked
+     * up from, so a crash mid-carry can bring it back. Once the carry ends that
+     * record is stale: restoring it would drop a second copy of the piece and
+     * its contents. The file is edited directly, and every other record is
+     * kept as written, so this is safe whether or not the chunk is loaded.
+     *
+     * @return true once loading the chunk can no longer restore the record,
+     *         false if it is still there because a file could not be written
+     */
+    public boolean removeCarriedRecord(ChunkKey key, UUID entityId) {
+        if (key == null || entityId == null) return true;
+        File file = key.toFile(chunkDataFolder);
+        File bak = new File(file.getParentFile(), file.getName() + ".bak");
+        Removal main = removeCarriedRecord(file, entityId);
+        // The backup is only read when the main file is unreadable, but it must not bring the record back either.
+        Removal backup = removeCarriedRecord(bak, entityId);
+        return switch (main) {
+            case REMOVED, ABSENT -> true;
+            case MISSING, UNREADABLE -> backup != Removal.FAILED;
+            case FAILED -> false;
+        };
+    }
+
+    private enum Removal {
+        /** The record was in the file and has been written out of it. */
+        REMOVED,
+        /** The file is readable and does not hold the record. */
+        ABSENT,
+        MISSING,
+        UNREADABLE,
+        /** The file holds the record but could not be rewritten. */
+        FAILED
+    }
+
+    private Removal removeCarriedRecord(File file, UUID entityId) {
+        if (!file.exists()) return Removal.MISSING;
+        JsonObject root = readLoadableChunkJson(file);
+        if (root == null) return Removal.UNREADABLE;
+
+        JsonArray kept = new JsonArray();
+        boolean removed = false;
+        for (JsonElement record : furnitureRecords(root)) {
+            if (isCarriedRecord(record) && entityId.equals(recordEntityId(record))) {
+                removed = true;
+                continue;
+            }
+            kept.add(record);
+        }
+        if (!removed) return Removal.ABSENT;
+
+        root.add("furniture", kept);
+        return writeChunkFile(file, root, false, "file " + file.getName()) ? Removal.REMOVED : Removal.FAILED;
+    }
+
+    /**
+     * Removes carried records for pieces that are saved as placed furniture in
+     * another record. Builds before this fix never cleared the record a carry
+     * left behind, so existing data can still hold these.
+     *
+     * @param notRemoved told about each stale record whose file could not be
+     *                   rewritten, so it can be kept from being restored
+     * @return the number of records removed
+     */
+    public int removeStaleCarriedRecords(BiConsumer<ChunkKey, UUID> notRemoved) {
+        File[] worlds = chunkDataFolder.listFiles(File::isDirectory);
+        if (worlds == null) return 0;
+
+        Map<ChunkKey, List<UUID>> carriedByChunk = new LinkedHashMap<>();
+        Set<UUID> placedIds = new HashSet<>();
+        for (File worldDir : worlds) {
+            Set<ChunkKey> keys = new LinkedHashSet<>();
+            String[] names = worldDir.list((dir, name) -> name.endsWith(".json") || name.endsWith(".json.bak"));
+            if (names == null) continue;
+            for (String name : names) {
+                ChunkKey key = chunkKeyOf(worldDir.getName(), name.substring(0, name.indexOf(".json")));
+                if (key != null) keys.add(key);
+            }
+            for (ChunkKey key : keys) {
+                // Read what loading the chunk would read: the main file, else its backup.
+                File file = new File(worldDir, key.x() + "_" + key.z() + ".json");
+                JsonObject root = readLoadableChunkJson(file);
+                if (root == null) root = readLoadableChunkJson(new File(worldDir, file.getName() + ".bak"));
+                if (root == null) continue;
+                for (JsonElement record : furnitureRecords(root)) {
+                    UUID id = recordEntityId(record);
+                    if (id == null) continue;
+                    if (isCarriedRecord(record)) {
+                        carriedByChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(id);
+                    } else {
+                        collectRecordIds(record, placedIds);
+                    }
+                }
+            }
+        }
+
+        int removed = 0;
+        for (Map.Entry<ChunkKey, List<UUID>> entry : carriedByChunk.entrySet()) {
+            for (UUID id : entry.getValue()) {
+                if (!placedIds.contains(id)) continue;
+                if (removeCarriedRecord(entry.getKey(), id)) {
+                    removed++;
+                } else {
+                    notRemoved.accept(entry.getKey(), id);
+                }
+            }
+        }
+        return removed;
+    }
+
+    /** Parses a chunk file's base name such as {@code 3_-2}; null for anything else. */
+    private static ChunkKey chunkKeyOf(String world, String baseName) {
+        String[] coords = baseName.split("_");
+        if (coords.length != 2) return null;
+        try {
+            return new ChunkKey(world, Integer.parseInt(coords[0]), Integer.parseInt(coords[1]));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private File pendingRemovalsFile() {
+        return new File(chunkDataFolder.getParentFile(), "pending-carried-records.json");
+    }
+
+    /**
+     * Saves the carried records that could not be removed yet, so that after a
+     * restart they are still skipped rather than restored.
+     *
+     * @return false if the list could not be saved
+     */
+    public boolean savePendingCarriedRecords(Map<ChunkKey, Set<UUID>> pending) {
+        File file = pendingRemovalsFile();
+        if (pending.isEmpty()) {
+            return !file.exists() || file.delete();
+        }
+        List<Map<String, Object>> entries = new ArrayList<>();
+        for (Map.Entry<ChunkKey, Set<UUID>> entry : pending.entrySet()) {
+            ChunkKey key = entry.getKey();
+            for (UUID id : entry.getValue()) {
+                entries.add(Map.of("world", key.world(), "x", key.x(), "z", key.z(), "entityId", id.toString()));
+            }
+        }
+        return writeChunkFile(file, Map.of("pending", entries), false, "pending carried records");
+    }
+
+    public Map<ChunkKey, Set<UUID>> loadPendingCarriedRecords() {
+        Map<ChunkKey, Set<UUID>> pending = new HashMap<>();
+        JsonObject root = readChunkJson(pendingRemovalsFile());
+        if (root == null || !root.has("pending") || !root.get("pending").isJsonArray()) return pending;
+        for (JsonElement el : root.getAsJsonArray("pending")) {
+            try {
+                JsonObject entry = el.getAsJsonObject();
+                ChunkKey key = new ChunkKey(entry.get("world").getAsString(),
+                        entry.get("x").getAsInt(), entry.get("z").getAsInt());
+                pending.computeIfAbsent(key, k -> new HashSet<>())
+                        .add(UUID.fromString(entry.get("entityId").getAsString()));
+            } catch (RuntimeException ignored) {
+                // Skip a malformed entry; the rest still apply.
+            }
+        }
+        return pending;
+    }
+
+    private static boolean isCarriedRecord(JsonElement record) {
+        if (!record.isJsonObject()) return false;
+        JsonElement carried = record.getAsJsonObject().get("carried");
+        return carried != null && carried.isJsonPrimitive() && carried.getAsJsonPrimitive().isBoolean()
+                && carried.getAsBoolean();
+    }
+
+    private static UUID recordEntityId(JsonElement record) {
+        if (!record.isJsonObject()) return null;
+        JsonElement raw = record.getAsJsonObject().get("entityId");
+        if (raw == null || !raw.isJsonPrimitive()) return null;
+        try {
+            return UUID.fromString(raw.getAsString());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static void collectRecordIds(JsonElement record, Set<UUID> out) {
+        UUID id = recordEntityId(record);
+        if (id != null) out.add(id);
+        JsonElement nested = record.getAsJsonObject().get("activeFurnitureSlots");
+        if (nested == null || !nested.isJsonObject()) return;
+        for (Map.Entry<String, JsonElement> slot : nested.getAsJsonObject().entrySet()) {
+            if (slot.getValue().isJsonObject()) collectRecordIds(slot.getValue(), out);
         }
     }
 

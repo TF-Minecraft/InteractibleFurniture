@@ -20,7 +20,9 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -47,6 +49,7 @@ import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureBreakHand
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureRestoreHandler;
 import net.tfminecraft.interactiblefurniture.manager.handlers.InteractionHandler;
 import net.tfminecraft.interactiblefurniture.manager.handlers.SlotInteractionHandler;
+import net.tfminecraft.interactiblefurniture.protection.FurnitureProtection;
 import net.tfminecraft.interactiblefurniture.utils.CoordinateUtils;
 
 /**
@@ -60,6 +63,8 @@ public class FurnitureManager implements Listener {
     private final HashMap<Player, Long> cooldown = new HashMap<>();
     private final Map<UUID, Furniture> placed = new HashMap<>();
     private final Set<Database.ChunkKey> dirtyChunks = new HashSet<>();
+    /** Carried records whose removal could not be written yet, by chunk. */
+    private final Map<Database.ChunkKey, Set<UUID>> pendingCarriedRecords = new HashMap<>();
 
     public Database getDatabase() {
         return database;
@@ -100,6 +105,13 @@ public class FurnitureManager implements Listener {
 
     public void start() {
         this.database = new Database();
+        pendingCarriedRecords.clear();
+        pendingCarriedRecords.putAll(database.loadPendingCarriedRecords());
+        retryPendingCarriedRecords();
+        int stale = database.removeStaleCarriedRecords(this::keepPending);
+        if (stale > 0) {
+            Bukkit.getLogger().info("[Furniture] Removed " + stale + " stale carried furniture record(s).");
+        }
         saveCycle();
         carryCycle();
     }
@@ -109,6 +121,7 @@ public class FurnitureManager implements Listener {
             @Override
             public void run() {
                 saveDirtyChunks();
+                retryPendingCarriedRecords();
             }
         }.runTaskTimer(InteractibleFurniture.getInstance(), 1200L, 1200L);
     }
@@ -117,7 +130,8 @@ public class FurnitureManager implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (Furniture f : placed.values()) {
+                // A tick can end a carry, which removes the piece from the map.
+                for (Furniture f : new ArrayList<>(placed.values())) {
                     f.tick();
                 }
             }
@@ -148,7 +162,8 @@ public class FurnitureManager implements Listener {
         }
     }
 
-    @EventHandler
+    // Skip clicks that land protection has denied. WorldGuard is a soft dependency, so its handler runs first.
+    @EventHandler(ignoreCancelled = true)
     public void onPlayerInteract(PlayerInteractEvent e) {
         if (e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
 
@@ -180,6 +195,10 @@ public class FurnitureManager implements Listener {
             BlockFace face = e.getBlockFace();
             for (Furniture f : placed.values()) {
                 if (!isValidInteraction(f, clicked, face)) continue;
+                if (!FurnitureProtection.canInteract(p, f)) {
+                    e.setCancelled(true);
+                    return;
+                }
                 Vector clickPoint = CoordinateUtils.calculateClickPoint(p, clicked, face);
                 if (SlotInteractionHandler.tryAttachCarried(p, f, carried, clickPoint)) {
                     e.setCancelled(true);
@@ -216,7 +235,7 @@ public class FurnitureManager implements Listener {
         }
 	}
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onPlayerInteractAtEntity(PlayerInteractAtEntityEvent e) {
         if (!(e.getRightClicked() instanceof Interaction interaction)) return;
 
@@ -240,6 +259,10 @@ public class FurnitureManager implements Listener {
             }
         }
         if (carried != null && !f.isCarried()) {
+            if (!FurnitureProtection.canInteract(p, f)) {
+                e.setCancelled(true);
+                return;
+            }
             if (SlotInteractionHandler.tryAttachCarried(p, f, carried, clickPoint)) {
                 e.setCancelled(true);
                 return;
@@ -259,6 +282,9 @@ public class FurnitureManager implements Listener {
 
         FurnitureType type = f.getType();
         if (type == null) return false;
+
+        // Claim the click even when denied so nothing else acts on the furniture's block.
+        if (!FurnitureProtection.canInteract(p, f)) return true;
 
         SlotDefinition hitSlot = null;
         Furniture interactFurniture = f;
@@ -311,7 +337,12 @@ public class FurnitureManager implements Listener {
     }
 
 
-    @EventHandler
+    /*
+     * Runs after every plugin that may protect the block. Removing furniture
+     * drops it and its contents, so it must not happen for a break that a
+     * protection plugin cancels later.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent e) {
         Block broken = e.getBlock();
         Player p = e.getPlayer();
@@ -362,6 +393,9 @@ public class FurnitureManager implements Listener {
         if (e.getAction() != Action.LEFT_CLICK_BLOCK && e.getAction() != Action.LEFT_CLICK_AIR) {
             return;
         }
+        if (isDenied(e)) {
+            return;
+        }
         Player p = e.getPlayer();
 
         if (e.getAction() == Action.LEFT_CLICK_BLOCK) {
@@ -408,7 +442,19 @@ public class FurnitureManager implements Listener {
         e.setCancelled(true);
     }
 
-    @EventHandler
+    /**
+     * Air clicks always arrive with block use denied, so ignoreCancelled would
+     * drop every one of them. Treat an air click as blocked only once another
+     * plugin has denied the item use as well.
+     */
+    private static boolean isDenied(PlayerInteractEvent e) {
+        if (e.getAction() == Action.LEFT_CLICK_AIR || e.getAction() == Action.RIGHT_CLICK_AIR) {
+            return e.useItemInHand() == Event.Result.DENY;
+        }
+        return e.useInteractedBlock() == Event.Result.DENY;
+    }
+
+    @EventHandler(ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent e) {
         if (!(e.getDamager() instanceof Player player)) {
             return;
@@ -449,6 +495,10 @@ public class FurnitureManager implements Listener {
             return true;
         }
         setCooldown(player);
+
+        if (!FurnitureProtection.canDamage(player, furniture)) {
+            return true;
+        }
 
         FurniturePunchEvent punch = new FurniturePunchEvent(player, furniture);
         Bukkit.getPluginManager().callEvent(punch);
@@ -513,11 +563,16 @@ public class FurnitureManager implements Listener {
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
         Chunk chunk = event.getChunk();
+        Set<UUID> stale = retryCarriedRecords(Database.ChunkKey.fromChunk(chunk));
         List<Furniture> loaded = database.loadChunk(chunk);
 
         boolean changed = false;
         for (Furniture f : loaded) {
-            Furniture restored = FurnitureRestoreHandler.restore(f);
+            if (isStaleCarriedRecord(f, stale)) {
+                changed = true;
+                continue;
+            }
+            Furniture restored = FurnitureRestoreHandler.restore(f, placed);
             if (restored != null) {
                 placed.put(restored.getEntityId(), restored);
             } else {
@@ -537,22 +592,25 @@ public class FurnitureManager implements Listener {
     @EventHandler
     public void onChunkUnload(ChunkUnloadEvent event) {
         Chunk chunk = event.getChunk();
+        Database.ChunkKey key = Database.ChunkKey.fromChunk(chunk);
 
-        // Collect furniture in this chunk
+        // Collect furniture in this chunk. A piece carried out of it is saved
+        // too, so its crash-recovery record is not overwritten.
         Set<Furniture> inChunk = new HashSet<>();
         for (Furniture f : placed.values()) {
-            if (f.isCarried()) continue;
-            if (f.getLoc().getChunk().equals(chunk)) {
+            if (key.equals(Database.ChunkKey.fromLocation(f.getLoc()))) {
                 inChunk.add(f);
             }
         }
 
         if (!inChunk.isEmpty()) {
             database.saveChunk(chunk, inChunk);
-            dirtyChunks.remove(Database.ChunkKey.fromChunk(chunk));
+            dirtyChunks.remove(key);
 
-            // Remove them from active memory (avoid holding unloaded chunk data)
-            inChunk.forEach(f -> placed.remove(f.getEntityId()));
+            // Remove placed pieces from active memory (avoid holding unloaded chunk data)
+            inChunk.stream()
+                    .filter(f -> !f.isCarried())
+                    .forEach(f -> placed.remove(f.getEntityId()));
         }
     }
 
@@ -578,6 +636,60 @@ public class FurnitureManager implements Listener {
     public void markDirty(Furniture furniture) {
         if (furniture == null || furniture.getLoc() == null || furniture.getLoc().getWorld() == null) return;
         dirtyChunks.add(Database.ChunkKey.fromLocation(furniture.getLoc()));
+    }
+
+    /**
+     * Removes the record a carry left in the chunk the piece was picked up
+     * from. Call it once the piece is saved somewhere else or gone, whether or
+     * not that chunk is loaded.
+     */
+    public void discardCarriedRecord(Furniture furniture) {
+        if (furniture == null) return;
+        Database.ChunkKey key = furniture.getCarriedRecordChunk();
+        if (key == null) return;
+        furniture.clearCarriedRecordChunk();
+        UUID id = furniture.getEntityId();
+        if (database == null || id == null || database.removeCarriedRecord(key, id)) return;
+        // The piece may be gone already, so the manager keeps the record until it is removed.
+        keepPending(key, id);
+    }
+
+    private void keepPending(Database.ChunkKey key, UUID id) {
+        pendingCarriedRecords.computeIfAbsent(key, k -> new HashSet<>()).add(id);
+        Bukkit.getLogger().warning("[Furniture] Could not remove the carried record of " + id + " from chunk "
+                + key.world() + " " + key.x() + "," + key.z() + "; retrying.");
+        savePendingCarriedRecords();
+    }
+
+    private void savePendingCarriedRecords() {
+        if (!database.savePendingCarriedRecords(pendingCarriedRecords)) {
+            Bukkit.getLogger().severe("[Furniture] Could not save pending carried-record removals; a restart"
+                    + " before they succeed may restore a copy of furniture that was dropped.");
+        }
+    }
+
+    /** Retries every carried-record removal that could not be written yet. */
+    public void retryPendingCarriedRecords() {
+        new ArrayList<>(pendingCarriedRecords.keySet()).forEach(this::retryCarriedRecords);
+    }
+
+    /**
+     * Retries removals that could not be written.
+     *
+     * @return the ids whose stale record is still in the chunk's file
+     */
+    private Set<UUID> retryCarriedRecords(Database.ChunkKey key) {
+        Set<UUID> pending = pendingCarriedRecords.get(key);
+        if (pending == null) return Set.of();
+        if (pending.removeIf(id -> database.removeCarriedRecord(key, id))) {
+            if (pending.isEmpty()) pendingCarriedRecords.remove(key);
+            savePendingCarriedRecords();
+        }
+        return pending.isEmpty() ? Set.of() : Set.copyOf(pending);
+    }
+
+    private static boolean isStaleCarriedRecord(Furniture saved, Set<UUID> stale) {
+        return saved.isPersistedCarried() && stale.contains(saved.getEntityId());
     }
 
     public void persistFurniture(Furniture furniture) {
@@ -612,11 +724,16 @@ public class FurnitureManager implements Listener {
 
         for (World world : Bukkit.getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) {
+                Set<UUID> stale = retryCarriedRecords(Database.ChunkKey.fromChunk(chunk));
                 List<Furniture> furnitureList = database.loadChunk(chunk);
 
                 boolean changed = false;
                 for (Furniture f : furnitureList) {
-                    Furniture restored = FurnitureRestoreHandler.restore(f);
+                    if (isStaleCarriedRecord(f, stale)) {
+                        changed = true;
+                        continue;
+                    }
+                    Furniture restored = FurnitureRestoreHandler.restore(f, placed);
                     if (restored != null) {
                         placed.put(restored.getEntityId(), restored);
                     } else {
@@ -696,9 +813,14 @@ public class FurnitureManager implements Listener {
         Bukkit.getLogger().info("[Furniture] Saved " + total + " furniture(s) across " + chunkMap.size() + " loaded chunk(s).");
     }
 
+    /**
+     * Ends every carry when the plugin disables. A piece cannot stay in a
+     * player's hands across a restart, so it drops with its contents where the
+     * carrier stands, as it does when the carrier quits.
+     */
     public void deleteCarried() {
         for (Furniture f : new ArrayList<>(placed.values())) {
-            if (f.isCarried()) f.remove(false);
+            if (f.isCarried()) f.remove(true);
         }
     }
 }

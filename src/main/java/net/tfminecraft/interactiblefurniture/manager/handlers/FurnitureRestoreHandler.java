@@ -30,6 +30,14 @@ public class FurnitureRestoreHandler {
     private FurnitureRestoreHandler() {}
 
     public static Furniture restore(Furniture furniture) {
+        return restore(furniture, InteractibleFurniture.getInstance().getFurnitureManager().getPlacedFurniture());
+    }
+
+    /**
+     * Restores a saved piece into the world, or returns null if it should not
+     * be placed. {@code placed} is the furniture that is already live.
+     */
+    public static Furniture restore(Furniture furniture, Map<UUID, Furniture> placed) {
         if (furniture == null || furniture.getLoc() == null || furniture.getLoc().getWorld() == null) {
             return null;
         }
@@ -38,7 +46,12 @@ public class FurnitureRestoreHandler {
         }
 
         if (furniture.isPersistedCarried() || isStranded(furniture)) {
-            cleanupCarried(furniture);
+            // A record for a piece that is already live is stale: the piece has
+            // moved on since it was saved here. Dropping it would copy the piece
+            // and its contents, and removing its entity would break the live one.
+            if (!isLive(furniture, placed)) {
+                cleanupCarried(furniture);
+            }
             return null;
         }
 
@@ -62,6 +75,17 @@ public class FurnitureRestoreHandler {
         for (PlacedFurnitureSlot slot : furniture.getActiveFurnitureSlots().values()) {
             collectAllFurnitureIds(slot.getNested(), out);
         }
+    }
+
+    private static boolean isLive(Furniture furniture, Map<UUID, Furniture> placed) {
+        if (placed == null || furniture.getEntityId() == null) {
+            return false;
+        }
+        Set<UUID> liveIds = new HashSet<>();
+        for (Furniture live : placed.values()) {
+            collectAllFurnitureIds(live, liveIds);
+        }
+        return liveIds.contains(furniture.getEntityId());
     }
 
     public static void reconcileChunk(Chunk chunk, Map<UUID, Furniture> placed) {

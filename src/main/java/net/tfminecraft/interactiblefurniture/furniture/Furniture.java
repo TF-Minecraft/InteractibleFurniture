@@ -16,7 +16,9 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import net.tfminecraft.interactiblefurniture.InteractibleFurniture;
+import net.tfminecraft.interactiblefurniture.database.Database;
 import net.tfminecraft.interactiblefurniture.loaders.FurnitureLoader;
+import net.tfminecraft.interactiblefurniture.manager.FurnitureManager;
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureBreakHandler;
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureNestedDisplay;
 import net.tfminecraft.interactiblefurniture.manager.handlers.InteractionHandler;
@@ -46,6 +48,7 @@ public class Furniture {
     private String parentSlotId;
 
     private Player holder;
+    private Database.ChunkKey carriedRecordChunk;
     private boolean firstCarryTick = true;
     private Location lastLoc = null;
     private Location baseResetLoc = null;
@@ -169,6 +172,19 @@ public class Furniture {
         this.persistedCarried = persistedCarried;
     }
 
+    /**
+     * The chunk whose saved file holds this piece's carried record, or null.
+     * Carrying writes that record so a crash mid-carry can still recover the
+     * piece; it has to be removed once the carry ends.
+     */
+    public Database.ChunkKey getCarriedRecordChunk() {
+        return carriedRecordChunk;
+    }
+
+    public void clearCarriedRecordChunk() {
+        this.carriedRecordChunk = null;
+    }
+
     public UUID getInteractionEntityId() {
         return interactionEntityId;
     }
@@ -230,16 +246,25 @@ public class Furniture {
         if (isAttached()) return;
         if (hasNestedFurniture()) return;
 
+        FurnitureManager manager = InteractibleFurniture.getInstance().getFurnitureManager();
+        Database.ChunkKey recordChunk = loc != null && loc.getWorld() != null
+                ? Database.ChunkKey.fromLocation(loc)
+                : null;
+        if (carriedRecordChunk != null && !carriedRecordChunk.equals(recordChunk)) {
+            manager.discardCarriedRecord(this);
+        }
+
         originBlockFace = null;
         originBlockLocation = null;
         removeInteractionEntity();
         holder = p;
         persistedCarried = true;
+        carriedRecordChunk = recordChunk;
 
         firstCarryTick = true;
         baseResetLoc = p.getLocation().clone();
-        InteractibleFurniture.getInstance().getFurnitureManager().pulse(p);
-        InteractibleFurniture.getInstance().getFurnitureManager().persistFurniture(this);
+        manager.pulse(p);
+        manager.persistFurniture(this);
     }
 
     public void stopCarrying() {
@@ -309,7 +334,13 @@ public class Furniture {
         }
 
         ItemDisplay base = (ItemDisplay) Bukkit.getEntity(entityId);
-        if (base == null) return;
+        // The display stays in the chunk the carry started in. If it has been
+        // unloaded or the holder has left for another world, the carry cannot
+        // be placed any more, so drop the piece rather than strand it.
+        if (base == null || !base.getWorld().equals(holder.getWorld())) {
+            remove(true);
+            return;
+        }
 
         Location holderLoc = holder.getLocation();
         Vector velocity = getHolderMovement();
