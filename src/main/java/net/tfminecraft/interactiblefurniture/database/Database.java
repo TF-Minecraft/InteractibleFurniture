@@ -74,24 +74,34 @@ public class Database {
 
     public void saveChunk(String world, int chunkX, int chunkZ, Collection<Furniture> furniture) {
         File file = new ChunkKey(world, chunkX, chunkZ).toFile(chunkDataFolder);
-        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
-        File bak = new File(file.getParentFile(), file.getName() + ".bak");
 
         List<Map<String, Object>> serialized = furniture.stream()
                 .map(this::serializeFurniture)
                 .toList();
 
+        writeChunkFile(file, Map.of("furniture", serialized), true, "chunk " + world + " " + chunkX + "," + chunkZ);
+    }
+
+    /**
+     * Writes a chunk file through a temporary file so a failed write never
+     * leaves it half written. When {@code keepBackup} is set, the previous file
+     * is copied to {@code .bak} first.
+     */
+    private boolean writeChunkFile(File file, Object content, boolean keepBackup, String label) {
+        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
+        File bak = new File(file.getParentFile(), file.getName() + ".bak");
+
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
-            GSON.toJson(Map.of("furniture", serialized), writer);
+            GSON.toJson(content, writer);
         } catch (IOException e) {
             InteractibleFurniture.getInstance().getLogger()
-                    .warning("Failed to save furniture for chunk " + world + " " + chunkX + "," + chunkZ);
+                    .warning("Failed to save furniture for " + label);
             e.printStackTrace();
-            return;
+            return false;
         }
 
         try {
-            if (file.exists()) {
+            if (keepBackup && file.exists()) {
                 Files.copy(file.toPath(), bak.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
             try {
@@ -100,10 +110,12 @@ public class Database {
             } catch (IOException atomicFailed) {
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
+            return true;
         } catch (IOException e) {
             InteractibleFurniture.getInstance().getLogger()
-                    .warning("Failed to replace furniture file for chunk " + world + " " + chunkX + "," + chunkZ);
+                    .warning("Failed to replace furniture file for " + label);
             e.printStackTrace();
+            return false;
         }
     }
 
@@ -155,19 +167,12 @@ public class Database {
     }
 
     private List<Furniture> tryReadChunkFile(File file) {
-        if (file == null || !file.exists()) return null;
+        JsonObject root = readChunkJson(file);
+        if (root == null) return null;
 
-        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
-            JsonElement parsed = JsonParser.parseReader(reader);
-            if (parsed == null || !parsed.isJsonObject()) return null;
-            JsonObject root = parsed.getAsJsonObject();
-            if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
-                return List.of();
-            }
-            JsonArray arr = root.getAsJsonArray("furniture");
-
+        try {
             List<Furniture> list = new ArrayList<>();
-            for (JsonElement el : arr) {
+            for (JsonElement el : furnitureRecords(root)) {
                 if (!el.isJsonObject()) continue;
                 Furniture f = deserializeFurniture(el.getAsJsonObject());
                 if (f != null) list.add(f);
@@ -177,6 +182,143 @@ public class Database {
             InteractibleFurniture.getInstance().getLogger()
                     .warning("Failed to parse furniture file " + file.getName() + ": " + e.getMessage());
             return null;
+        }
+    }
+
+    private JsonObject readChunkJson(File file) {
+        if (file == null || !file.exists()) return null;
+
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            JsonElement parsed = JsonParser.parseReader(reader);
+            if (parsed == null || !parsed.isJsonObject()) return null;
+            return parsed.getAsJsonObject();
+        } catch (Exception e) {
+            InteractibleFurniture.getInstance().getLogger()
+                    .warning("Failed to parse furniture file " + file.getName() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static JsonArray furnitureRecords(JsonObject root) {
+        if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
+            return new JsonArray();
+        }
+        return root.getAsJsonArray("furniture");
+    }
+
+    // ------------------------------------------------------------------------
+    //  CARRIED RECORDS
+    // ------------------------------------------------------------------------
+
+    /**
+     * Removes one piece's carried record from a chunk's saved file.
+     *
+     * Carrying saves the piece, marked as carried, into the chunk it was picked
+     * up from, so a crash mid-carry can bring it back. Once the carry ends that
+     * record is stale: restoring it would drop a second copy of the piece and
+     * its contents. The file is edited directly, and every other record is
+     * kept as written, so this is safe whether or not the chunk is loaded.
+     *
+     * @return true if a record was removed
+     */
+    public boolean removeCarriedRecord(ChunkKey key, UUID entityId) {
+        if (key == null || entityId == null) return false;
+        File file = key.toFile(chunkDataFolder);
+        File bak = new File(file.getParentFile(), file.getName() + ".bak");
+        boolean removed = removeCarriedRecord(file, entityId);
+        // The backup is only read when the main file is unreadable, but it must not bring the record back either.
+        removed |= removeCarriedRecord(bak, entityId);
+        return removed;
+    }
+
+    private boolean removeCarriedRecord(File file, UUID entityId) {
+        JsonObject root = readChunkJson(file);
+        if (root == null) return false;
+
+        JsonArray kept = new JsonArray();
+        boolean removed = false;
+        for (JsonElement record : furnitureRecords(root)) {
+            if (isCarriedRecord(record) && entityId.equals(recordEntityId(record))) {
+                removed = true;
+                continue;
+            }
+            kept.add(record);
+        }
+        if (!removed) return false;
+
+        root.add("furniture", kept);
+        return writeChunkFile(file, root, false, "file " + file.getName());
+    }
+
+    /**
+     * Removes carried records for pieces that are saved as placed furniture in
+     * another record. Builds before this fix never cleared the record a carry
+     * left behind, so existing data can still hold these.
+     *
+     * @return the number of records removed
+     */
+    public int removeStaleCarriedRecords() {
+        File[] worlds = chunkDataFolder.listFiles(File::isDirectory);
+        if (worlds == null) return 0;
+
+        Map<File, List<UUID>> carriedByFile = new LinkedHashMap<>();
+        Set<UUID> placedIds = new HashSet<>();
+        for (File worldDir : worlds) {
+            File[] files = worldDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (files == null) continue;
+            for (File file : files) {
+                JsonObject root = readChunkJson(file);
+                if (root == null) continue;
+                for (JsonElement record : furnitureRecords(root)) {
+                    UUID id = recordEntityId(record);
+                    if (id == null) continue;
+                    if (isCarriedRecord(record)) {
+                        carriedByFile.computeIfAbsent(file, f -> new ArrayList<>()).add(id);
+                    } else {
+                        collectRecordIds(record, placedIds);
+                    }
+                }
+            }
+        }
+
+        int removed = 0;
+        for (Map.Entry<File, List<UUID>> entry : carriedByFile.entrySet()) {
+            File file = entry.getKey();
+            File bak = new File(file.getParentFile(), file.getName() + ".bak");
+            for (UUID id : entry.getValue()) {
+                if (!placedIds.contains(id)) continue;
+                if (removeCarriedRecord(file, id)) removed++;
+                removeCarriedRecord(bak, id);
+            }
+        }
+        return removed;
+    }
+
+    private static boolean isCarriedRecord(JsonElement record) {
+        if (!record.isJsonObject()) return false;
+        JsonElement carried = record.getAsJsonObject().get("carried");
+        return carried != null && carried.isJsonPrimitive() && carried.getAsJsonPrimitive().isBoolean()
+                && carried.getAsBoolean();
+    }
+
+    private static UUID recordEntityId(JsonElement record) {
+        if (!record.isJsonObject()) return null;
+        JsonElement raw = record.getAsJsonObject().get("entityId");
+        if (raw == null || !raw.isJsonPrimitive()) return null;
+        try {
+            return UUID.fromString(raw.getAsString());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static void collectRecordIds(JsonElement record, Set<UUID> out) {
+        UUID id = recordEntityId(record);
+        if (id != null) out.add(id);
+        JsonElement nested = record.getAsJsonObject().get("activeFurnitureSlots");
+        if (nested == null || !nested.isJsonObject()) return;
+        for (Map.Entry<String, JsonElement> slot : nested.getAsJsonObject().entrySet()) {
+            if (slot.getValue().isJsonObject()) collectRecordIds(slot.getValue(), out);
         }
     }
 

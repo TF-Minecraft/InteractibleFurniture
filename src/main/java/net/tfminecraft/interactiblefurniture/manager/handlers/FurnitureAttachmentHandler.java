@@ -83,6 +83,8 @@ public final class FurnitureAttachmentHandler {
             }
             return false;
         }
+        // The parent's record now holds the piece, so the carry's record is stale.
+        InteractibleFurniture.getInstance().getFurnitureManager().discardCarriedRecord(nested);
         parent.getLoc().getWorld().playSound(parent.getLoc(), Sound.ENTITY_ITEM_FRAME_ADD_ITEM, 1f, 1f);
         player.swingMainHand();
         return true;

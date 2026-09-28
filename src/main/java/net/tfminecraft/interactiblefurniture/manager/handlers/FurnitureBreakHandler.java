@@ -70,6 +70,8 @@ public class FurnitureBreakHandler {
         clearUnsharedBarriers(furniture, placed);
         Chunk chunk = furniture.getLoc().getChunk();
         InteractibleFurniture.getInstance().getFurnitureManager().persistChunk(chunk);
+        // A carried piece also has a record where it was picked up; it drops here instead.
+        InteractibleFurniture.getInstance().getFurnitureManager().discardCarriedRecord(furniture);
         if (furniture.getType() != null && furniture.getType().hasSoundEffect(SoundEffect.BREAK)) {
             String sound = furniture.getType().getSoundEffectPath(SoundEffect.BREAK);
             furniture.getLoc().getWorld().playSound(furniture.getLoc(), sound, 1.0f, 1.0f);
