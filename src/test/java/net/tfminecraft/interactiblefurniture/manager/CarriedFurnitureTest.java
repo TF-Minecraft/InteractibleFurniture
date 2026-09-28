@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.util.List;
 
 import org.bukkit.Location;
@@ -79,6 +80,26 @@ class CarriedFurnitureTest extends FurnitureTestServer {
         loadChunk(0, 0);
         assertEquals(List.of(), savedIn(0, 0));
         assertEquals(List.of(), droppedItems());
+    }
+
+    @Test
+    void aRecordLeftByADropIsStillSkippedAfterARestart() {
+        carryFilledCrateOutOfItsChunk();
+        blockWrites(0, 0);
+
+        player.disconnect();
+        assertEquals(List.of(Material.BARREL, Material.DIAMOND), droppedItems());
+        clearDrops();
+
+        server.getPluginManager().disablePlugin(plugin);
+        server.getPluginManager().enablePlugin(plugin);
+        loadChunk(0, 0);
+        assertEquals(List.of(), droppedItems(), "the piece already dropped when its carrier quit");
+
+        allowWrites();
+        loadChunk(0, 0);
+        assertEquals(List.of(), savedIn(0, 0));
+        assertFalse(new File(plugin.getDataFolder(), "data/pending-carried-records.json").exists());
     }
 
     @Test

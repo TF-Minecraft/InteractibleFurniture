@@ -107,6 +107,23 @@ class CarriedRecordTest extends FurnitureTestServer {
     }
 
     @Test
+    void startupFindsPiecesInTheBackupWhenTheMainFileHasABadRecord() throws IOException {
+        UUID moved = UUID.randomUUID();
+        save(5, 5, record(moved, 5, 5, true));
+        save(6, 5, record(moved, 6, 5, false));
+        save(6, 5, record(moved, 6, 5, false));
+        // The main file parses, but its record cannot be read, so loading uses the backup.
+        Files.writeString(new File(chunkFolder(), "6_5.json").toPath(),
+                "{\"furniture\":[{\"type\":\"" + CRATE + "\",\"entityId\":\"not-a-uuid\"}]}");
+        assertEquals(List.of(moved), idsIn(6, 5));
+
+        server.getPluginManager().disablePlugin(plugin);
+        server.getPluginManager().enablePlugin(plugin);
+
+        assertEquals(List.of(), idsIn(5, 5));
+    }
+
+    @Test
     void startupRemovesCarriedRecordsForPiecesSavedElsewhereAndKeepsRecoveryRecords() {
         UUID moved = UUID.randomUUID();
         save(5, 5, record(moved, 5, 5, true));

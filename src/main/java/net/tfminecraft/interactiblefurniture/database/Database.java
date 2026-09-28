@@ -200,6 +200,14 @@ public class Database {
         }
     }
 
+    /**
+     * A chunk file's JSON, or null if loading the chunk would not use it: it
+     * is missing, does not parse, or its records cannot be read.
+     */
+    private JsonObject readLoadableChunkJson(File file) {
+        return tryReadChunkFile(file) != null ? readChunkJson(file) : null;
+    }
+
     private static JsonArray furnitureRecords(JsonObject root) {
         if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
             return new JsonArray();
@@ -250,7 +258,7 @@ public class Database {
 
     private Removal removeCarriedRecord(File file, UUID entityId) {
         if (!file.exists()) return Removal.MISSING;
-        JsonObject root = readChunkJson(file);
+        JsonObject root = readLoadableChunkJson(file);
         if (root == null) return Removal.UNREADABLE;
 
         JsonArray kept = new JsonArray();
@@ -294,8 +302,8 @@ public class Database {
             for (ChunkKey key : keys) {
                 // Read what loading the chunk would read: the main file, else its backup.
                 File file = new File(worldDir, key.x() + "_" + key.z() + ".json");
-                JsonObject root = readChunkJson(file);
-                if (root == null) root = readChunkJson(new File(worldDir, file.getName() + ".bak"));
+                JsonObject root = readLoadableChunkJson(file);
+                if (root == null) root = readLoadableChunkJson(new File(worldDir, file.getName() + ".bak"));
                 if (root == null) continue;
                 for (JsonElement record : furnitureRecords(root)) {
                     UUID id = recordEntityId(record);
@@ -332,6 +340,49 @@ public class Database {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private File pendingRemovalsFile() {
+        return new File(chunkDataFolder.getParentFile(), "pending-carried-records.json");
+    }
+
+    /**
+     * Saves the carried records that could not be removed yet, so that after a
+     * restart they are still skipped rather than restored.
+     *
+     * @return false if the list could not be saved
+     */
+    public boolean savePendingCarriedRecords(Map<ChunkKey, Set<UUID>> pending) {
+        File file = pendingRemovalsFile();
+        if (pending.isEmpty()) {
+            return !file.exists() || file.delete();
+        }
+        List<Map<String, Object>> entries = new ArrayList<>();
+        for (Map.Entry<ChunkKey, Set<UUID>> entry : pending.entrySet()) {
+            ChunkKey key = entry.getKey();
+            for (UUID id : entry.getValue()) {
+                entries.add(Map.of("world", key.world(), "x", key.x(), "z", key.z(), "entityId", id.toString()));
+            }
+        }
+        return writeChunkFile(file, Map.of("pending", entries), false, "pending carried records");
+    }
+
+    public Map<ChunkKey, Set<UUID>> loadPendingCarriedRecords() {
+        Map<ChunkKey, Set<UUID>> pending = new HashMap<>();
+        JsonObject root = readChunkJson(pendingRemovalsFile());
+        if (root == null || !root.has("pending") || !root.get("pending").isJsonArray()) return pending;
+        for (JsonElement el : root.getAsJsonArray("pending")) {
+            try {
+                JsonObject entry = el.getAsJsonObject();
+                ChunkKey key = new ChunkKey(entry.get("world").getAsString(),
+                        entry.get("x").getAsInt(), entry.get("z").getAsInt());
+                pending.computeIfAbsent(key, k -> new HashSet<>())
+                        .add(UUID.fromString(entry.get("entityId").getAsString()));
+            } catch (RuntimeException ignored) {
+                // Skip a malformed entry; the rest still apply.
+            }
+        }
+        return pending;
     }
 
     private static boolean isCarriedRecord(JsonElement record) {

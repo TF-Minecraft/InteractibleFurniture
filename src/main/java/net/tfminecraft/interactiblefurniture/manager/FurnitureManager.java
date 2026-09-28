@@ -105,6 +105,9 @@ public class FurnitureManager implements Listener {
 
     public void start() {
         this.database = new Database();
+        pendingCarriedRecords.clear();
+        pendingCarriedRecords.putAll(database.loadPendingCarriedRecords());
+        retryPendingCarriedRecords();
         int stale = database.removeStaleCarriedRecords(this::keepPending);
         if (stale > 0) {
             Bukkit.getLogger().info("[Furniture] Removed " + stale + " stale carried furniture record(s).");
@@ -655,6 +658,14 @@ public class FurnitureManager implements Listener {
         pendingCarriedRecords.computeIfAbsent(key, k -> new HashSet<>()).add(id);
         Bukkit.getLogger().warning("[Furniture] Could not remove the carried record of " + id + " from chunk "
                 + key.world() + " " + key.x() + "," + key.z() + "; retrying.");
+        savePendingCarriedRecords();
+    }
+
+    private void savePendingCarriedRecords() {
+        if (!database.savePendingCarriedRecords(pendingCarriedRecords)) {
+            Bukkit.getLogger().severe("[Furniture] Could not save pending carried-record removals; a restart"
+                    + " before they succeed may restore a copy of furniture that was dropped.");
+        }
     }
 
     /** Retries every carried-record removal that could not be written yet. */
@@ -670,12 +681,11 @@ public class FurnitureManager implements Listener {
     private Set<UUID> retryCarriedRecords(Database.ChunkKey key) {
         Set<UUID> pending = pendingCarriedRecords.get(key);
         if (pending == null) return Set.of();
-        pending.removeIf(id -> database.removeCarriedRecord(key, id));
-        if (pending.isEmpty()) {
-            pendingCarriedRecords.remove(key);
-            return Set.of();
+        if (pending.removeIf(id -> database.removeCarriedRecord(key, id))) {
+            if (pending.isEmpty()) pendingCarriedRecords.remove(key);
+            savePendingCarriedRecords();
         }
-        return Set.copyOf(pending);
+        return pending.isEmpty() ? Set.of() : Set.copyOf(pending);
     }
 
     private static boolean isStaleCarriedRecord(Furniture saved, Set<UUID> stale) {
