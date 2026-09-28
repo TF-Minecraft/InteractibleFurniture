@@ -63,6 +63,8 @@ public class FurnitureManager implements Listener {
     private final HashMap<Player, Long> cooldown = new HashMap<>();
     private final Map<UUID, Furniture> placed = new HashMap<>();
     private final Set<Database.ChunkKey> dirtyChunks = new HashSet<>();
+    /** Carried records whose removal could not be written yet, by chunk. */
+    private final Map<Database.ChunkKey, Set<UUID>> pendingCarriedRecords = new HashMap<>();
 
     public Database getDatabase() {
         return database;
@@ -116,6 +118,7 @@ public class FurnitureManager implements Listener {
             @Override
             public void run() {
                 saveDirtyChunks();
+                new ArrayList<>(pendingCarriedRecords.keySet()).forEach(FurnitureManager.this::retryCarriedRecords);
             }
         }.runTaskTimer(InteractibleFurniture.getInstance(), 1200L, 1200L);
     }
@@ -557,10 +560,15 @@ public class FurnitureManager implements Listener {
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
         Chunk chunk = event.getChunk();
+        Set<UUID> stale = retryCarriedRecords(Database.ChunkKey.fromChunk(chunk));
         List<Furniture> loaded = database.loadChunk(chunk);
 
         boolean changed = false;
         for (Furniture f : loaded) {
+            if (isStaleCarriedRecord(f, stale)) {
+                changed = true;
+                continue;
+            }
             Furniture restored = FurnitureRestoreHandler.restore(f, placed);
             if (restored != null) {
                 placed.put(restored.getEntityId(), restored);
@@ -637,9 +645,32 @@ public class FurnitureManager implements Listener {
         Database.ChunkKey key = furniture.getCarriedRecordChunk();
         if (key == null) return;
         furniture.clearCarriedRecordChunk();
-        if (database != null && furniture.getEntityId() != null) {
-            database.removeCarriedRecord(key, furniture.getEntityId());
+        UUID id = furniture.getEntityId();
+        if (database == null || id == null || database.removeCarriedRecord(key, id)) return;
+        // The piece may be gone already, so the manager keeps the record until it is removed.
+        pendingCarriedRecords.computeIfAbsent(key, k -> new HashSet<>()).add(id);
+        Bukkit.getLogger().warning("[Furniture] Could not remove the carried record of " + id + " from chunk "
+                + key.world() + " " + key.x() + "," + key.z() + "; retrying.");
+    }
+
+    /**
+     * Retries removals that could not be written.
+     *
+     * @return the ids whose stale record is still in the chunk's file
+     */
+    private Set<UUID> retryCarriedRecords(Database.ChunkKey key) {
+        Set<UUID> pending = pendingCarriedRecords.get(key);
+        if (pending == null) return Set.of();
+        pending.removeIf(id -> database.removeCarriedRecord(key, id));
+        if (pending.isEmpty()) {
+            pendingCarriedRecords.remove(key);
+            return Set.of();
         }
+        return Set.copyOf(pending);
+    }
+
+    private static boolean isStaleCarriedRecord(Furniture saved, Set<UUID> stale) {
+        return saved.isPersistedCarried() && stale.contains(saved.getEntityId());
     }
 
     public void persistFurniture(Furniture furniture) {
@@ -674,10 +705,15 @@ public class FurnitureManager implements Listener {
 
         for (World world : Bukkit.getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) {
+                Set<UUID> stale = retryCarriedRecords(Database.ChunkKey.fromChunk(chunk));
                 List<Furniture> furnitureList = database.loadChunk(chunk);
 
                 boolean changed = false;
                 for (Furniture f : furnitureList) {
+                    if (isStaleCarriedRecord(f, stale)) {
+                        changed = true;
+                        continue;
+                    }
                     Furniture restored = FurnitureRestoreHandler.restore(f, placed);
                     if (restored != null) {
                         placed.put(restored.getEntityId(), restored);

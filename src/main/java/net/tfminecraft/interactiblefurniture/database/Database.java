@@ -219,21 +219,38 @@ public class Database {
      * its contents. The file is edited directly, and every other record is
      * kept as written, so this is safe whether or not the chunk is loaded.
      *
-     * @return true if a record was removed
+     * @return true once loading the chunk can no longer restore the record,
+     *         false if it is still there because a file could not be written
      */
     public boolean removeCarriedRecord(ChunkKey key, UUID entityId) {
-        if (key == null || entityId == null) return false;
+        if (key == null || entityId == null) return true;
         File file = key.toFile(chunkDataFolder);
         File bak = new File(file.getParentFile(), file.getName() + ".bak");
-        boolean removed = removeCarriedRecord(file, entityId);
+        Removal main = removeCarriedRecord(file, entityId);
         // The backup is only read when the main file is unreadable, but it must not bring the record back either.
-        removed |= removeCarriedRecord(bak, entityId);
-        return removed;
+        Removal backup = removeCarriedRecord(bak, entityId);
+        return switch (main) {
+            case REMOVED, ABSENT -> true;
+            case MISSING, UNREADABLE -> backup != Removal.FAILED;
+            case FAILED -> false;
+        };
     }
 
-    private boolean removeCarriedRecord(File file, UUID entityId) {
+    private enum Removal {
+        /** The record was in the file and has been written out of it. */
+        REMOVED,
+        /** The file is readable and does not hold the record. */
+        ABSENT,
+        MISSING,
+        UNREADABLE,
+        /** The file holds the record but could not be rewritten. */
+        FAILED
+    }
+
+    private Removal removeCarriedRecord(File file, UUID entityId) {
+        if (!file.exists()) return Removal.MISSING;
         JsonObject root = readChunkJson(file);
-        if (root == null) return false;
+        if (root == null) return Removal.UNREADABLE;
 
         JsonArray kept = new JsonArray();
         boolean removed = false;
@@ -244,10 +261,10 @@ public class Database {
             }
             kept.add(record);
         }
-        if (!removed) return false;
+        if (!removed) return Removal.ABSENT;
 
         root.add("furniture", kept);
-        return writeChunkFile(file, root, false, "file " + file.getName());
+        return writeChunkFile(file, root, false, "file " + file.getName()) ? Removal.REMOVED : Removal.FAILED;
     }
 
     /**
@@ -287,7 +304,7 @@ public class Database {
             File bak = new File(file.getParentFile(), file.getName() + ".bak");
             for (UUID id : entry.getValue()) {
                 if (!placedIds.contains(id)) continue;
-                if (removeCarriedRecord(file, id)) removed++;
+                if (removeCarriedRecord(file, id) == Removal.REMOVED) removed++;
                 removeCarriedRecord(bak, id);
             }
         }

@@ -37,8 +37,7 @@ class CarriedRecordTest extends FurnitureTestServer {
     }
 
     private String backupOf(int chunkX, int chunkZ) throws IOException {
-        File chunks = new File(plugin.getDataFolder(), "data/chunks/" + world.getName());
-        return Files.readString(new File(chunks, chunkX + "_" + chunkZ + ".json.bak").toPath());
+        return Files.readString(new File(chunkFolder(), chunkX + "_" + chunkZ + ".json.bak").toPath());
     }
 
     @Test
@@ -55,9 +54,23 @@ class CarriedRecordTest extends FurnitureTestServer {
         assertEquals(List.of(placed), idsIn(5, 5));
         assertFalse(backupOf(5, 5).contains(carried.toString()), "the backup must not bring the record back");
         assertTrue(backupOf(5, 5).contains(placed.toString()));
+        assertTrue(manager.getDatabase().removeCarriedRecord(key, carried), "an absent record counts as removed");
+        assertTrue(manager.getDatabase().removeCarriedRecord(key, placed));
+        assertEquals(List.of(placed), idsIn(5, 5), "only carried records are removed");
+    }
+
+    @Test
+    void aRecordThatCannotBeWrittenOutIsReportedAsStillThere() {
+        UUID carried = UUID.randomUUID();
+        save(5, 5, record(carried, 5, 5, true));
+        makeChunkFilesReadOnly();
+
+        Database.ChunkKey key = new Database.ChunkKey(world.getName(), 5, 5);
         assertFalse(manager.getDatabase().removeCarriedRecord(key, carried));
-        assertFalse(manager.getDatabase().removeCarriedRecord(key, placed), "only carried records are removed");
-        assertEquals(List.of(placed), idsIn(5, 5));
+
+        makeChunkFilesWritable();
+        assertTrue(manager.getDatabase().removeCarriedRecord(key, carried));
+        assertEquals(List.of(), idsIn(5, 5));
     }
 
     @Test

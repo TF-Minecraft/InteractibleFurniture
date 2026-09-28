@@ -2,6 +2,7 @@ package net.tfminecraft.interactiblefurniture;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -10,7 +11,9 @@ import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
+import java.io.File;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -162,6 +165,7 @@ public abstract class FurnitureTestServer {
     @AfterEach
     void stopServer() {
         try {
+            makeChunkFilesWritable();
             MockBukkit.unmock();
         } finally {
             FurnitureProtection.use(null);
@@ -273,6 +277,25 @@ public abstract class FurnitureTestServer {
                 .map(item -> item.getItemStack().getType())
                 .sorted(Comparator.comparing(Material::name))
                 .toList();
+    }
+
+    /** The folder holding this world's chunk files. */
+    protected File chunkFolder() {
+        return new File(plugin.getDataFolder(), "data/chunks/" + world.getName());
+    }
+
+    /**
+     * Makes the chunk files impossible to rewrite, as a full or failing disk
+     * would. Skips the test where permissions are not enforced, such as for root.
+     */
+    protected void makeChunkFilesReadOnly() {
+        File folder = chunkFolder();
+        assumeTrue(folder.setWritable(false) && !Files.isWritable(folder.toPath()),
+                "file permissions are not enforced here");
+    }
+
+    protected void makeChunkFilesWritable() {
+        chunkFolder().setWritable(true);
     }
 
     protected List<Furniture> savedIn(int chunkX, int chunkZ) {
