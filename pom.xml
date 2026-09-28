@@ -72,6 +72,13 @@
             <version>1.10.9-tfmc-feca4db85337</version>
             <scope>provided</scope>
         </dependency>
+        <!-- Optional at runtime: softdepend in plugin.yml. -->
+        <dependency>
+            <groupId>com.sk89q.worldguard</groupId>
+            <artifactId>worldguard-bukkit</artifactId>
+            <version>7.0.9</version>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -83,6 +90,10 @@
         <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+        <repository>
+            <id>enginehub</id>
+            <url>https://maven.enginehub.org/repo/</url>
         </repository>
     </repositories>
 

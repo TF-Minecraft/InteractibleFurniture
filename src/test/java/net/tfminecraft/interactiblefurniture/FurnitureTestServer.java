@@ -10,6 +10,7 @@ import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,7 @@ import net.tfminecraft.interactiblefurniture.furniture.data.ModelData;
 import net.tfminecraft.interactiblefurniture.loaders.FurnitureLoader;
 import net.tfminecraft.interactiblefurniture.manager.FurnitureManager;
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurniturePlacementHandler;
+import net.tfminecraft.interactiblefurniture.protection.FurnitureProtection;
 import net.tfminecraft.tlibs.TLibs;
 
 /**
@@ -59,11 +61,13 @@ import net.tfminecraft.tlibs.TLibs;
 public abstract class FurnitureTestServer {
     protected static final String CRATE = "test_crate";
     protected static final String TABLE = "test_table";
+    protected static final String STOOL = "test_stool";
     protected static final int GROUND_Y = 64;
 
     private static final Map<String, Material> ITEMS = Map.of(
             "test.crate", Material.BARREL,
-            "test.table", Material.CRAFTING_TABLE);
+            "test.table", Material.CRAFTING_TABLE,
+            "test.stool", Material.OAK_LOG);
 
     protected ServerMock server;
     protected InteractibleFurniture plugin;
@@ -137,6 +141,19 @@ public abstract class FurnitureTestServer {
                       whitelist:
                         - "test.crate"
                 """);
+        // Used through its Interaction entity rather than the block under it.
+        registerType(STOOL, """
+                item: test.stool
+                placement_options:
+                  floor: true
+                carry: true
+                model:
+                  display: ITEM_DISPLAY
+                  model: test.stool_model
+                interaction:
+                  width: 1.0
+                  height: 1.0
+                """);
         world = server.addSimpleWorld("world");
         player = server.addPlayer();
         player.teleport(new Location(world, 0.5, GROUND_Y + 1, 0.5));
@@ -147,6 +164,7 @@ public abstract class FurnitureTestServer {
         try {
             MockBukkit.unmock();
         } finally {
+            FurnitureProtection.use(null);
             FurnitureLoader.getMap().clear();
             displays.close();
             instance.close();
@@ -220,6 +238,17 @@ public abstract class FurnitureTestServer {
         ItemDisplay stand = world.spawn(furniture.getLoc(), ItemDisplay.class, display -> display.setItemStack(item));
         slot.setDisplayStandId(stand.getUniqueId());
         manager.persistFurniture(furniture);
+    }
+
+    /** Lets the next click through; the manager ignores clicks within 200 ms of the last. */
+    protected void clearCooldowns() {
+        try {
+            Field cooldown = FurnitureManager.class.getDeclaredField("cooldown");
+            cooldown.setAccessible(true);
+            ((Map<?, ?>) cooldown.get(manager)).clear();
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
     }
 
     protected void standAt(int x, int z) {

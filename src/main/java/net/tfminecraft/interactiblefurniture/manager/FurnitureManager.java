@@ -20,7 +20,9 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -47,6 +49,7 @@ import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureBreakHand
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureRestoreHandler;
 import net.tfminecraft.interactiblefurniture.manager.handlers.InteractionHandler;
 import net.tfminecraft.interactiblefurniture.manager.handlers.SlotInteractionHandler;
+import net.tfminecraft.interactiblefurniture.protection.FurnitureProtection;
 import net.tfminecraft.interactiblefurniture.utils.CoordinateUtils;
 
 /**
@@ -153,7 +156,8 @@ public class FurnitureManager implements Listener {
         }
     }
 
-    @EventHandler
+    // Skip clicks that land protection has denied. WorldGuard is a soft dependency, so its handler runs first.
+    @EventHandler(ignoreCancelled = true)
     public void onPlayerInteract(PlayerInteractEvent e) {
         if (e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
 
@@ -185,6 +189,10 @@ public class FurnitureManager implements Listener {
             BlockFace face = e.getBlockFace();
             for (Furniture f : placed.values()) {
                 if (!isValidInteraction(f, clicked, face)) continue;
+                if (!FurnitureProtection.canInteract(p, f)) {
+                    e.setCancelled(true);
+                    return;
+                }
                 Vector clickPoint = CoordinateUtils.calculateClickPoint(p, clicked, face);
                 if (SlotInteractionHandler.tryAttachCarried(p, f, carried, clickPoint)) {
                     e.setCancelled(true);
@@ -221,7 +229,7 @@ public class FurnitureManager implements Listener {
         }
 	}
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onPlayerInteractAtEntity(PlayerInteractAtEntityEvent e) {
         if (!(e.getRightClicked() instanceof Interaction interaction)) return;
 
@@ -245,6 +253,10 @@ public class FurnitureManager implements Listener {
             }
         }
         if (carried != null && !f.isCarried()) {
+            if (!FurnitureProtection.canInteract(p, f)) {
+                e.setCancelled(true);
+                return;
+            }
             if (SlotInteractionHandler.tryAttachCarried(p, f, carried, clickPoint)) {
                 e.setCancelled(true);
                 return;
@@ -264,6 +276,9 @@ public class FurnitureManager implements Listener {
 
         FurnitureType type = f.getType();
         if (type == null) return false;
+
+        // Claim the click even when denied so nothing else acts on the furniture's block.
+        if (!FurnitureProtection.canInteract(p, f)) return true;
 
         SlotDefinition hitSlot = null;
         Furniture interactFurniture = f;
@@ -316,7 +331,12 @@ public class FurnitureManager implements Listener {
     }
 
 
-    @EventHandler
+    /*
+     * Runs after every plugin that may protect the block. Removing furniture
+     * drops it and its contents, so it must not happen for a break that a
+     * protection plugin cancels later.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent e) {
         Block broken = e.getBlock();
         Player p = e.getPlayer();
@@ -367,6 +387,9 @@ public class FurnitureManager implements Listener {
         if (e.getAction() != Action.LEFT_CLICK_BLOCK && e.getAction() != Action.LEFT_CLICK_AIR) {
             return;
         }
+        if (isDenied(e)) {
+            return;
+        }
         Player p = e.getPlayer();
 
         if (e.getAction() == Action.LEFT_CLICK_BLOCK) {
@@ -413,7 +436,19 @@ public class FurnitureManager implements Listener {
         e.setCancelled(true);
     }
 
-    @EventHandler
+    /**
+     * Air clicks always arrive with block use denied, so ignoreCancelled would
+     * drop every one of them. Treat an air click as blocked only once another
+     * plugin has denied the item use as well.
+     */
+    private static boolean isDenied(PlayerInteractEvent e) {
+        if (e.getAction() == Action.LEFT_CLICK_AIR || e.getAction() == Action.RIGHT_CLICK_AIR) {
+            return e.useItemInHand() == Event.Result.DENY;
+        }
+        return e.useInteractedBlock() == Event.Result.DENY;
+    }
+
+    @EventHandler(ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent e) {
         if (!(e.getDamager() instanceof Player player)) {
             return;
@@ -454,6 +489,10 @@ public class FurnitureManager implements Listener {
             return true;
         }
         setCooldown(player);
+
+        if (!FurnitureProtection.canDamage(player, furniture)) {
+            return true;
+        }
 
         FurniturePunchEvent punch = new FurniturePunchEvent(player, furniture);
         Bukkit.getPluginManager().callEvent(punch);

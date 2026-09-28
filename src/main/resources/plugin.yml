@@ -5,6 +5,8 @@ version: ${project.version}
 author: Drefvelin
 
 depend: [TLibs]
+# WorldGuard is optional; loading after it lets its protection run first.
+softdepend: [WorldGuard]
 
 commands:
   if:
