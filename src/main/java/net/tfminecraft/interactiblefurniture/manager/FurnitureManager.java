@@ -118,7 +118,7 @@ public class FurnitureManager implements Listener {
             @Override
             public void run() {
                 saveDirtyChunks();
-                new ArrayList<>(pendingCarriedRecords.keySet()).forEach(FurnitureManager.this::retryCarriedRecords);
+                retryPendingCarriedRecords();
             }
         }.runTaskTimer(InteractibleFurniture.getInstance(), 1200L, 1200L);
     }
@@ -655,6 +655,11 @@ public class FurnitureManager implements Listener {
         pendingCarriedRecords.computeIfAbsent(key, k -> new HashSet<>()).add(id);
         Bukkit.getLogger().warning("[Furniture] Could not remove the carried record of " + id + " from chunk "
                 + key.world() + " " + key.x() + "," + key.z() + "; retrying.");
+    }
+
+    /** Retries every carried-record removal that could not be written yet. */
+    public void retryPendingCarriedRecords() {
+        new ArrayList<>(pendingCarriedRecords.keySet()).forEach(this::retryCarriedRecords);
     }
 
     /**

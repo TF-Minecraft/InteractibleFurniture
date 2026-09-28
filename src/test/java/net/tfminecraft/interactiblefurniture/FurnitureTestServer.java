@@ -2,7 +2,6 @@ package net.tfminecraft.interactiblefurniture;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -13,7 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.lang.reflect.Field;
-import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +79,7 @@ public abstract class FurnitureTestServer {
     private MockedStatic<TLibs> tlibs;
     private MockedStatic<InteractibleFurniture> instance;
     private MockedStatic<FurniturePlacementHandler> displays;
+    private final List<File> blockedWrites = new ArrayList<>();
 
     @BeforeEach
     void startServer() throws InvalidConfigurationException {
@@ -165,7 +165,7 @@ public abstract class FurnitureTestServer {
     @AfterEach
     void stopServer() {
         try {
-            makeChunkFilesWritable();
+            allowWrites();
             MockBukkit.unmock();
         } finally {
             FurnitureProtection.use(null);
@@ -285,17 +285,26 @@ public abstract class FurnitureTestServer {
     }
 
     /**
-     * Makes the chunk files impossible to rewrite, as a full or failing disk
-     * would. Skips the test where permissions are not enforced, such as for root.
+     * Makes a chunk's files impossible to rewrite, as a full or failing disk
+     * would: every write goes through a temporary file, and a folder stands
+     * where it would go.
      */
-    protected void makeChunkFilesReadOnly() {
-        File folder = chunkFolder();
-        assumeTrue(folder.setWritable(false) && !Files.isWritable(folder.toPath()),
-                "file permissions are not enforced here");
+    protected void blockWrites(int chunkX, int chunkZ) {
+        for (String name : temporaryFiles(chunkX, chunkZ)) {
+            File blocker = new File(chunkFolder(), name);
+            assertTrue(blocker.mkdirs(), "could not block " + name);
+            blockedWrites.add(blocker);
+        }
     }
 
-    protected void makeChunkFilesWritable() {
-        chunkFolder().setWritable(true);
+    protected void allowWrites() {
+        blockedWrites.forEach(File::delete);
+        blockedWrites.clear();
+    }
+
+    private static List<String> temporaryFiles(int chunkX, int chunkZ) {
+        String base = chunkX + "_" + chunkZ + ".json";
+        return List.of(base + ".tmp", base + ".bak.tmp");
     }
 
     protected List<Furniture> savedIn(int chunkX, int chunkZ) {

@@ -284,11 +284,18 @@ public class Database {
         Map<ChunkKey, List<UUID>> carriedByChunk = new LinkedHashMap<>();
         Set<UUID> placedIds = new HashSet<>();
         for (File worldDir : worlds) {
-            File[] files = worldDir.listFiles((dir, name) -> name.endsWith(".json"));
-            if (files == null) continue;
-            for (File file : files) {
-                ChunkKey key = chunkKeyOf(worldDir.getName(), file.getName());
-                JsonObject root = key != null ? readChunkJson(file) : null;
+            Set<ChunkKey> keys = new LinkedHashSet<>();
+            String[] names = worldDir.list((dir, name) -> name.endsWith(".json") || name.endsWith(".json.bak"));
+            if (names == null) continue;
+            for (String name : names) {
+                ChunkKey key = chunkKeyOf(worldDir.getName(), name.substring(0, name.indexOf(".json")));
+                if (key != null) keys.add(key);
+            }
+            for (ChunkKey key : keys) {
+                // Read what loading the chunk would read: the main file, else its backup.
+                File file = new File(worldDir, key.x() + "_" + key.z() + ".json");
+                JsonObject root = readChunkJson(file);
+                if (root == null) root = readChunkJson(new File(worldDir, file.getName() + ".bak"));
                 if (root == null) continue;
                 for (JsonElement record : furnitureRecords(root)) {
                     UUID id = recordEntityId(record);
@@ -316,9 +323,9 @@ public class Database {
         return removed;
     }
 
-    /** Parses a chunk file name such as {@code 3_-2.json}; null for anything else. */
-    private static ChunkKey chunkKeyOf(String world, String fileName) {
-        String[] coords = fileName.substring(0, fileName.length() - ".json".length()).split("_");
+    /** Parses a chunk file's base name such as {@code 3_-2}; null for anything else. */
+    private static ChunkKey chunkKeyOf(String world, String baseName) {
+        String[] coords = baseName.split("_");
         if (coords.length != 2) return null;
         try {
             return new ChunkKey(world, Integer.parseInt(coords[0]), Integer.parseInt(coords[1]));

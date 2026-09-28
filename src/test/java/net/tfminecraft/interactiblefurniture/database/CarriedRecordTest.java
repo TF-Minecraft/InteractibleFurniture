@@ -63,12 +63,12 @@ class CarriedRecordTest extends FurnitureTestServer {
     void aRecordThatCannotBeWrittenOutIsReportedAsStillThere() {
         UUID carried = UUID.randomUUID();
         save(5, 5, record(carried, 5, 5, true));
-        makeChunkFilesReadOnly();
+        blockWrites(5, 5);
 
         Database.ChunkKey key = new Database.ChunkKey(world.getName(), 5, 5);
         assertFalse(manager.getDatabase().removeCarriedRecord(key, carried));
 
-        makeChunkFilesWritable();
+        allowWrites();
         assertTrue(manager.getDatabase().removeCarriedRecord(key, carried));
         assertEquals(List.of(), idsIn(5, 5));
     }
@@ -78,16 +78,32 @@ class CarriedRecordTest extends FurnitureTestServer {
         UUID moved = UUID.randomUUID();
         save(0, 0, record(moved, 0, 0, true));
         save(6, 5, record(moved, 6, 5, false));
-        makeChunkFilesReadOnly();
+        blockWrites(0, 0);
 
         server.getPluginManager().disablePlugin(plugin);
         server.getPluginManager().enablePlugin(plugin);
         loadChunk(0, 0);
         assertEquals(List.of(), droppedItems(), "the piece is saved in chunk (6, 5), so nothing may drop");
 
-        makeChunkFilesWritable();
+        allowWrites();
         loadChunk(0, 0);
         assertEquals(List.of(), idsIn(0, 0));
+    }
+
+    @Test
+    void startupFindsPiecesThatOnlyTheBackupStillHolds() throws IOException {
+        UUID moved = UUID.randomUUID();
+        save(5, 5, record(moved, 5, 5, true));
+        save(6, 5, record(moved, 6, 5, false));
+        save(6, 5, record(moved, 6, 5, false));
+        // Loading chunk (6, 5) falls back to its backup when the main file cannot be read.
+        Files.writeString(new File(chunkFolder(), "6_5.json").toPath(), "{ not json");
+        assertEquals(List.of(moved), idsIn(6, 5));
+
+        server.getPluginManager().disablePlugin(plugin);
+        server.getPluginManager().enablePlugin(plugin);
+
+        assertEquals(List.of(), idsIn(5, 5));
     }
 
     @Test

@@ -67,7 +67,7 @@ class CarriedFurnitureTest extends FurnitureTestServer {
     @Test
     void aRecordThatCannotBeRemovedYetIsSkippedOnLoadAndRemovedLater() {
         Furniture crate = carryFilledCrateOutOfItsChunk();
-        makeChunkFilesReadOnly();
+        blockWrites(0, 0);
 
         assertTrue(FurniturePlacementHandler.placeCarriedFurniture(
                 player, ground(20, 4), BlockFace.UP, crate, manager.getPlacedFurniture()));
@@ -75,7 +75,7 @@ class CarriedFurnitureTest extends FurnitureTestServer {
         loadChunk(0, 0);
         assertEquals(List.of(), droppedItems(), "a record still pending removal must not be restored");
 
-        makeChunkFilesWritable();
+        allowWrites();
         loadChunk(0, 0);
         assertEquals(List.of(), savedIn(0, 0));
         assertEquals(List.of(), droppedItems());

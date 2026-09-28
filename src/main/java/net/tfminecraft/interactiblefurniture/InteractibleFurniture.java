@@ -41,6 +41,8 @@ public class InteractibleFurniture extends JavaPlugin{
         interactionDebugService.stop();
         furnitureManager.deleteCarried();
         furnitureManager.saveAllLoadedChunks();
+        // Pending removals are only kept in memory; this is their last chance.
+        furnitureManager.retryPendingCarriedRecords();
         getLogger().info("InteractibleFurniture has been disabled.");
     }
 
