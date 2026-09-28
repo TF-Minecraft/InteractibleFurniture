@@ -105,7 +105,7 @@ public class FurnitureManager implements Listener {
 
     public void start() {
         this.database = new Database();
-        int stale = database.removeStaleCarriedRecords();
+        int stale = database.removeStaleCarriedRecords(this::keepPending);
         if (stale > 0) {
             Bukkit.getLogger().info("[Furniture] Removed " + stale + " stale carried furniture record(s).");
         }
@@ -648,6 +648,10 @@ public class FurnitureManager implements Listener {
         UUID id = furniture.getEntityId();
         if (database == null || id == null || database.removeCarriedRecord(key, id)) return;
         // The piece may be gone already, so the manager keeps the record until it is removed.
+        keepPending(key, id);
+    }
+
+    private void keepPending(Database.ChunkKey key, UUID id) {
         pendingCarriedRecords.computeIfAbsent(key, k -> new HashSet<>()).add(id);
         Bukkit.getLogger().warning("[Furniture] Could not remove the carried record of " + id + " from chunk "
                 + key.world() + " " + key.x() + "," + key.z() + "; retrying.");

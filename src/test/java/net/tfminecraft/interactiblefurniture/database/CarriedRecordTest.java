@@ -74,6 +74,23 @@ class CarriedRecordTest extends FurnitureTestServer {
     }
 
     @Test
+    void aStaleRecordStartupCannotRemoveIsNeverRestored() {
+        UUID moved = UUID.randomUUID();
+        save(0, 0, record(moved, 0, 0, true));
+        save(6, 5, record(moved, 6, 5, false));
+        makeChunkFilesReadOnly();
+
+        server.getPluginManager().disablePlugin(plugin);
+        server.getPluginManager().enablePlugin(plugin);
+        loadChunk(0, 0);
+        assertEquals(List.of(), droppedItems(), "the piece is saved in chunk (6, 5), so nothing may drop");
+
+        makeChunkFilesWritable();
+        loadChunk(0, 0);
+        assertEquals(List.of(), idsIn(0, 0));
+    }
+
+    @Test
     void startupRemovesCarriedRecordsForPiecesSavedElsewhereAndKeepsRecoveryRecords() {
         UUID moved = UUID.randomUUID();
         save(5, 5, record(moved, 5, 5, true));

@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -272,25 +273,28 @@ public class Database {
      * another record. Builds before this fix never cleared the record a carry
      * left behind, so existing data can still hold these.
      *
+     * @param notRemoved told about each stale record whose file could not be
+     *                   rewritten, so it can be kept from being restored
      * @return the number of records removed
      */
-    public int removeStaleCarriedRecords() {
+    public int removeStaleCarriedRecords(BiConsumer<ChunkKey, UUID> notRemoved) {
         File[] worlds = chunkDataFolder.listFiles(File::isDirectory);
         if (worlds == null) return 0;
 
-        Map<File, List<UUID>> carriedByFile = new LinkedHashMap<>();
+        Map<ChunkKey, List<UUID>> carriedByChunk = new LinkedHashMap<>();
         Set<UUID> placedIds = new HashSet<>();
         for (File worldDir : worlds) {
             File[] files = worldDir.listFiles((dir, name) -> name.endsWith(".json"));
             if (files == null) continue;
             for (File file : files) {
-                JsonObject root = readChunkJson(file);
+                ChunkKey key = chunkKeyOf(worldDir.getName(), file.getName());
+                JsonObject root = key != null ? readChunkJson(file) : null;
                 if (root == null) continue;
                 for (JsonElement record : furnitureRecords(root)) {
                     UUID id = recordEntityId(record);
                     if (id == null) continue;
                     if (isCarriedRecord(record)) {
-                        carriedByFile.computeIfAbsent(file, f -> new ArrayList<>()).add(id);
+                        carriedByChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(id);
                     } else {
                         collectRecordIds(record, placedIds);
                     }
@@ -299,16 +303,28 @@ public class Database {
         }
 
         int removed = 0;
-        for (Map.Entry<File, List<UUID>> entry : carriedByFile.entrySet()) {
-            File file = entry.getKey();
-            File bak = new File(file.getParentFile(), file.getName() + ".bak");
+        for (Map.Entry<ChunkKey, List<UUID>> entry : carriedByChunk.entrySet()) {
             for (UUID id : entry.getValue()) {
                 if (!placedIds.contains(id)) continue;
-                if (removeCarriedRecord(file, id) == Removal.REMOVED) removed++;
-                removeCarriedRecord(bak, id);
+                if (removeCarriedRecord(entry.getKey(), id)) {
+                    removed++;
+                } else {
+                    notRemoved.accept(entry.getKey(), id);
+                }
             }
         }
         return removed;
+    }
+
+    /** Parses a chunk file name such as {@code 3_-2.json}; null for anything else. */
+    private static ChunkKey chunkKeyOf(String world, String fileName) {
+        String[] coords = fileName.substring(0, fileName.length() - ".json".length()).split("_");
+        if (coords.length != 2) return null;
+        try {
+            return new ChunkKey(world, Integer.parseInt(coords[0]), Integer.parseInt(coords[1]));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static boolean isCarriedRecord(JsonElement record) {
