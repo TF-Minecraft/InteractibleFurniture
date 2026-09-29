@@ -17,6 +17,7 @@ import org.joml.Vector3f;
 
 import net.tfminecraft.interactiblefurniture.InteractibleFurniture;
 import net.tfminecraft.interactiblefurniture.database.Database;
+import net.tfminecraft.interactiblefurniture.furniture.data.DisplayData;
 import net.tfminecraft.interactiblefurniture.loaders.FurnitureLoader;
 import net.tfminecraft.interactiblefurniture.manager.FurnitureManager;
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureBreakHandler;
@@ -295,12 +296,14 @@ public class Furniture {
         display.teleport(newDisplay.getLocation());
         display.setBrightness(null);
 
-        // Reset slot origins (necessary so slots follow correctly after placement)
+        // Reset slot origins (necessary so slots follow correctly after placement).
+        // Keep each slot's display data: a plugin may have moved or hidden it (a pot's soup level).
         for (PlacedSlot slot : activeSlots.values()) {
             SlotDefinition def = slot.getDefinition();
             if (def == null) continue;
-            Location newLoc = def.computeDisplayLocation(loc, display, null);
-            Transformation t = def.buildFinalTransformation(display, null);
+            DisplayData data = slot.getCurrentDisplayData();
+            Location newLoc = def.computeDisplayLocation(loc, display, data);
+            Transformation t = def.buildFinalTransformation(display, data);
             ItemDisplay slotDisplay = (ItemDisplay) Bukkit.getEntity(slot.getDisplayStandId());
             if(slotDisplay == null) continue;
             slotDisplay.teleport(newLoc);
