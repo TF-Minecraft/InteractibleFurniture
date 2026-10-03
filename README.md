@@ -21,6 +21,12 @@ The plugin supplies the shared furniture behaviour used by other TF-Minecraft ex
 
 Technical documentation is maintained in [TF-Minecraft/Docs](https://github.com/TF-Minecraft/Docs).
 
+## Tests
+
+With Java 21 and the pinned plugin dependencies installed (the build workflow
+prepares them with `.github/scripts/prepare-release.sh`), run `mvn clean verify`.
+Tests use JUnit, Mockito, and MockBukkit and run without a live Minecraft server.
+
 ## License
 
 Copyright (c) 2026 TF-Minecraft contributors.
