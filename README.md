@@ -21,6 +21,24 @@ The plugin supplies the shared furniture behaviour used by other TF-Minecraft ex
 
 Technical documentation is maintained in [TF-Minecraft/Docs](https://github.com/TF-Minecraft/Docs).
 
+## Tests
+
+Install the pinned shared plugin dependencies, download the private build
+inputs, then run the build with Java 21:
+
+```sh
+python3 path/to/TLibs/tools/install-plugins.py --pom pom.xml --mode pinned
+read -rsp 'ServerAssets token: ' GH_TOKEN && echo && export GH_TOKEN
+bash .github/scripts/prepare-release.sh
+mvn clean verify
+```
+
+Point the installer at your TLibs checkout. The token needs Contents read access
+to TF-Minecraft/ServerAssets; reading it with a prompt keeps it out of shell
+history. CI supplies it from `DEPS_TOKEN`.
+
+Tests use JUnit, Mockito, and MockBukkit and run without a live Minecraft server.
+
 ## License
 
 Copyright (c) 2026 TF-Minecraft contributors.
