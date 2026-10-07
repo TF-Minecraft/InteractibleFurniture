@@ -260,6 +260,37 @@ class DatabaseCoverageTest extends FurnitureTestServer {
                 .stream().map(Furniture::getEntityId).toList(), "the only restorable copy must survive cleanup");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"root", "nested", "unknown-parent-type", "unknown-nested-type", "deleted-slot", "item-slot"})
+    void staleCleanupRecognizesDefinedCopiesBeforeTheirWorldLoads(String shape) throws Exception {
+        Furniture carried = record(CRATE, 3, 0);
+        carried.setPersistedCarried(true);
+        save(3, 0, carried);
+        save(4, 0, record(shape.equals("item-slot") ? CRATE : TABLE, 4, 0));
+        edit(4, 0, root -> {
+            JsonObject placed = root.getAsJsonArray("furniture").get(0).getAsJsonObject();
+            placed.getAsJsonObject("location").addProperty("world", "not_loaded_yet");
+            if (shape.equals("root") || shape.equals("unknown-parent-type")) {
+                placed.addProperty("entityId", carried.getEntityId().toString());
+                if (shape.equals("unknown-parent-type")) placed.addProperty("type", "deleted-type");
+            } else {
+                JsonObject nested = new JsonObject();
+                nested.addProperty("type", shape.equals("unknown-nested-type") ? "deleted-type" : CRATE);
+                nested.addProperty("entityId", carried.getEntityId().toString());
+                JsonObject slots = new JsonObject();
+                slots.add(shape.equals("deleted-slot") ? "deleted" : shape.equals("item-slot") ? "lid" : "surface", nested);
+                placed.add("activeFurnitureSlots", slots);
+            }
+        });
+        assertTrue(database().loadChunk(world.getName(), 4, 0).isEmpty());
+        boolean restorable = shape.equals("root") || shape.equals("nested");
+        assertEquals(restorable ? 1 : 0, database().removeStaleCarriedRecords((key, id) -> {
+            throw new AssertionError("recovery deletion must succeed");
+        }));
+        assertEquals(restorable ? List.of() : List.of(carried.getEntityId()),
+                database().loadChunk(world.getName(), 3, 0).stream().map(Furniture::getEntityId).toList());
+    }
+
     @Test
     void staleCleanupIgnoresInvalidFileNamesAndMalformedUnknownRecords() throws Exception {
         Furniture furniture = record(CRATE, 0, 0);

@@ -316,9 +316,19 @@ public class Database {
                     if (isCarriedRecord(record)) {
                         carriedByChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(id);
                     } else {
-                        // Only a copy that loading can restore makes a carry recovery stale.
-                        // Removed types and slots can leave raw records that are intentionally skipped.
-                        collectFurnitureIds(deserializeFurniture(record.getAsJsonObject()), placedIds);
+                        JsonObject saved = record.getAsJsonObject();
+                        Furniture restored = deserializeFurniture(saved);
+                        collectFurnitureIds(restored, placedIds);
+                        // A world loaded later must not turn a placed copy into a second recovery drop.
+                        // Still ignore removed definitions and slots, which cannot restore that copy.
+                        JsonElement location = saved.get("location");
+                        if (restored == null && location != null && location.isJsonObject()) {
+                            JsonElement worldName = location.getAsJsonObject().get("world");
+                            if (worldName != null && worldName.isJsonPrimitive()
+                                    && Bukkit.getWorld(worldName.getAsString()) == null) {
+                                collectDefinedRecordIds(saved, placedIds);
+                            }
+                        }
                     }
                 }
             }
@@ -415,6 +425,25 @@ public class Database {
         out.add(furniture.getEntityId());
         for (PlacedFurnitureSlot slot : furniture.getActiveFurnitureSlots().values()) {
             collectFurnitureIds(slot.getNested(), out);
+        }
+    }
+
+    private static void collectDefinedRecordIds(JsonElement record, Set<UUID> out) {
+        UUID id = recordEntityId(record);
+        if (id == null) return;
+        JsonObject saved = record.getAsJsonObject();
+        JsonElement typeId = saved.has("type") ? saved.get("type") : saved.get("id");
+        if (typeId == null || !typeId.isJsonPrimitive()) return;
+        var type = FurnitureLoader.getByString(typeId.getAsString());
+        if (type == null) return;
+        out.add(id);
+        JsonElement slots = saved.get("activeFurnitureSlots");
+        if (slots == null || !slots.isJsonObject()) return;
+        for (var entry : slots.getAsJsonObject().entrySet()) {
+            var definition = type.getSlot(entry.getKey());
+            if (definition != null && definition.getSlotType() == SlotType.FURNITURE) {
+                collectDefinedRecordIds(entry.getValue(), out);
+            }
         }
     }
 
