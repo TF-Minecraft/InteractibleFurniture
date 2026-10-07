@@ -119,6 +119,11 @@ public final class IfCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean handleNestedDetach(Player player) {
+        if (InteractibleFurniture.getInstance().getFurnitureManager().getByCarrier(player) != null) {
+            player.sendMessage("Place the furniture you are carrying before detaching another piece.");
+            return true;
+        }
+
         Furniture parent = findNearestFurnitureWithNested(player);
         if (parent == null) {
             player.sendMessage("No nearby parent with nested furniture found.");

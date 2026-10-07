@@ -78,6 +78,13 @@ public class FurnitureType {
         // templates map (optional)
         Map<String, SlotTemplate> templates = new HashMap<>();
 
+        // Also allow top-level templates under 'slot-templates' or 'templates'
+        if (cfg.isConfigurationSection("slot-templates")) {
+            parseSlotTemplates(cfg.getConfigurationSection("slot-templates"), templates);
+        } else if (cfg.isConfigurationSection("templates")) {
+            parseSlotTemplates(cfg.getConfigurationSection("templates"), templates);
+        }
+
         // Parse slots if present
         if (cfg.isConfigurationSection("slots")) {
             ConfigurationSection slotsSec = cfg.getConfigurationSection("slots");
@@ -135,7 +142,7 @@ public class FurnitureType {
                     // Get whitelist (template or explicit)
                     List<String> whitelist = base != null ? base.whitelist : null;
                     if (subSlotCfg.isList("whitelist") || subSlotCfg.isString("whitelist")) {
-                        whitelist = subSlotCfg.getStringList("whitelist");
+                        whitelist = readWhitelist(subSlotCfg);
                     }
 
                     // Get display settings (merge template then override)
@@ -218,13 +225,6 @@ public class FurnitureType {
                     // Invalid sound effect key, ignore
                 }
             }
-        }
-
-        // Also allow top-level templates under 'slot-templates' or 'templates'
-        if (cfg.isConfigurationSection("slot-templates")) {
-            parseSlotTemplates(cfg.getConfigurationSection("slot-templates"), templates);
-        } else if (cfg.isConfigurationSection("templates")) {
-            parseSlotTemplates(cfg.getConfigurationSection("templates"), templates);
         }
 
         // parse `layers` if present
@@ -320,6 +320,13 @@ public class FurnitureType {
         return result;
     }
 
+    private static List<String> readWhitelist(ConfigurationSection config) {
+        if (config.isString("whitelist")) {
+            return List.of(config.getString("whitelist"));
+        }
+        return config.getStringList("whitelist");
+    }
+
     // ---------- Slot template parsing helpers ----------
     private void parseSlotTemplates(ConfigurationSection tmplSec, Map<String, SlotTemplate> out) {
         for (String tname : tmplSec.getKeys(false)) {
@@ -332,7 +339,7 @@ public class FurnitureType {
                 offset = new Vector(off.getDouble("x", 0), off.getDouble("y", 0), off.getDouble("z", 0));
             }
 
-            List<String> whitelist = tcfg.getStringList("whitelist");
+            List<String> whitelist = readWhitelist(tcfg);
 
             Vector displayRot = null;
             Vector displayScale = null;

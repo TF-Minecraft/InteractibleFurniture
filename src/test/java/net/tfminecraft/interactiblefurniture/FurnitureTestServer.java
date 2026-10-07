@@ -198,10 +198,18 @@ public abstract class FurnitureTestServer {
         }
     }
 
-    private static void registerType(String id, String yaml) throws InvalidConfigurationException {
+    private void registerType(String id, String yaml) throws InvalidConfigurationException {
         YamlConfiguration config = new YamlConfiguration();
         config.loadFromString(yaml);
         FurnitureLoader.getMap().put(id, new FurnitureType(id, config));
+        // Restart tests must reload the same definitions from disk, just like the server.
+        YamlConfiguration file = new YamlConfiguration();
+        file.set(id, config);
+        try {
+            file.save(new File(plugin.getDataFolder(), "furniture/" + id + ".yml"));
+        } catch (java.io.IOException e) {
+            throw new AssertionError("Cannot save test furniture definition", e);
+        }
     }
 
     protected static ItemStack itemFor(String furnitureId) {

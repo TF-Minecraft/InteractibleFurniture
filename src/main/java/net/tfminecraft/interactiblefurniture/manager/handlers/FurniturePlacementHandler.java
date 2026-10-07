@@ -42,7 +42,7 @@ public class FurniturePlacementHandler {
             // Flip layer vertically based on face
             List<boolean[][]> layers = type.getLayers();
 
-            if (!hasEnoughSpace(layers, clicked, player, type)) return true;
+            if (!hasEnoughSpace(layers, clicked, face)) return true;
 
             Entity display = spawnDisplayEntity(type, target, yaw, face);
             if(display == null) return true;
@@ -94,7 +94,7 @@ public class FurniturePlacementHandler {
         float yaw = calculateYaw(player, face, type);
 
         // Validate space
-        if (!hasEnoughSpace(type.getLayers(), clicked, player, type)) {
+        if (!hasEnoughSpace(type.getLayers(), clicked, face)) {
             return false;
         }
 
@@ -239,10 +239,10 @@ public class FurniturePlacementHandler {
 
     // ---- Space checking ----
     private static boolean hasEnoughSpace(List<boolean[][]> layers, Block clicked,
-                                          Player player, FurnitureType type) {
+                                          BlockFace face) {
         if (layers == null || layers.isEmpty()) return true;
 
-        Block centerBlock = clicked.getRelative(0, 1, 0);
+        Block centerBlock = clicked.getRelative(face);
         for (int ly = 0; ly < layers.size(); ly++) {
             boolean[][] mat = layers.get(ly);
             int size = mat.length;
@@ -343,8 +343,12 @@ public class FurniturePlacementHandler {
         if (type == null || model == null || !model.getDisplay().equals(Display.ITEM_DISPLAY)) {
             return null;
         }
+        ItemStack item = TLibs.getItemAPI().getCreator().getItemFromPath(model.getModel());
+        if (item == null || item.getType().isAir()) {
+            return null;
+        }
         return spawnLoc.getWorld().spawn(spawnLoc, ItemDisplay.class, disp -> {
-            disp.setItemStack(TLibs.getItemAPI().getCreator().getItemFromPath(model.getModel()));
+            disp.setItemStack(item);
             disp.setBillboard(org.bukkit.entity.Display.Billboard.FIXED);
             org.joml.Quaternionf rotation = new org.joml.Quaternionf();
             DisplayData data = type.getDisplayData();

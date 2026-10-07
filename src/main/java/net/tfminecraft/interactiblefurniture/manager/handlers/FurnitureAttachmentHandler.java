@@ -35,7 +35,7 @@ public final class FurnitureAttachmentHandler {
         if (nested.isAttached()) {
             return false;
         }
-        if (parent.getEntityId().equals(nested.getEntityId())) {
+        if (containsFurniture(nested, parent.getEntityId())) {
             return false;
         }
 
@@ -62,6 +62,21 @@ public final class FurnitureAttachmentHandler {
 
         InteractibleFurniture.getInstance().getFurnitureManager().persistFurniture(parent);
         return true;
+    }
+
+    private static boolean containsFurniture(Furniture root, java.util.UUID id) {
+        var pending = new java.util.ArrayDeque<Furniture>();
+        var seen = new java.util.HashSet<java.util.UUID>();
+        pending.add(root);
+        while (!pending.isEmpty()) {
+            Furniture next = pending.remove();
+            if (next.getEntityId().equals(id)) return true;
+            if (!seen.add(next.getEntityId())) continue;
+            for (PlacedFurnitureSlot slot : next.getActiveFurnitureSlots().values()) {
+                if (slot.getNested() != null) pending.add(slot.getNested());
+            }
+        }
+        return false;
     }
 
     public static boolean attachFromCarried(Furniture parent, String slotId, Furniture nested, Player player) {

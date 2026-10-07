@@ -372,6 +372,8 @@ public class FurnitureManager implements Listener {
             }
             boolean blocked = false;
             for (UUID id : toRemove) {
+                // Removing one piece may already have removed others sharing its barriers.
+                if (!placed.containsKey(id)) continue;
                 if (!FurnitureBreakHandler.removeFurniture(id, placed, p, "attached-block-broken")) {
                     blocked = true;
                 }
@@ -488,9 +490,6 @@ public class FurnitureManager implements Listener {
     }
 
     private boolean punchThenBreak(Furniture furniture, Player player, String reason) {
-        if (furniture == null || player == null) {
-            return false;
-        }
         if (isOnCooldown(player)) {
             return true;
         }
@@ -520,9 +519,6 @@ public class FurnitureManager implements Listener {
     }
 
     private void breakResolvedFurniture(Furniture furniture, Player player, String reason) {
-        if (furniture == null) {
-            return;
-        }
         if (placed.containsKey(furniture.getEntityId())) {
             FurnitureBreakHandler.removeFurniture(furniture.getEntityId(), placed, player, reason);
             return;
@@ -635,7 +631,9 @@ public class FurnitureManager implements Listener {
 
     public void markDirty(Furniture furniture) {
         if (furniture == null || furniture.getLoc() == null || furniture.getLoc().getWorld() == null) return;
-        dirtyChunks.add(Database.ChunkKey.fromLocation(furniture.getLoc()));
+        Furniture root = resolvePersistRoot(furniture);
+        if (root == null || root.getLoc() == null || root.getLoc().getWorld() == null) return;
+        dirtyChunks.add(Database.ChunkKey.fromLocation(root.getLoc()));
     }
 
     /**
@@ -704,12 +702,10 @@ public class FurnitureManager implements Listener {
             return furniture;
         }
         UUID parentId = furniture.getParentEntityId();
-        if (parentId == null) {
-            return furniture;
-        }
-        Furniture parent = placed.get(parentId);
+        Furniture parent = InteractionHandler.findFurniture(parentId, placed);
         if (parent == null) {
-            return furniture;
+            // The parent may have unloaded while an integration still holds a nested reference.
+            return null;
         }
         return resolvePersistRoot(parent);
     }

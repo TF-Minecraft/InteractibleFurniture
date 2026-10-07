@@ -123,9 +123,6 @@ public final class InteractionDebugRenderer {
         DisplayData displayData = new DisplayData();
         for (SlotDefinition slot : type.getSlots().values()) {
             Location slotLoc = slot.computeDisplayLocation(furniture.getLoc(), display, displayData);
-            if (slotLoc == null || slotLoc.getWorld() == null) {
-                continue;
-            }
             Color color = slot.isInteractible() ? COLOR_SLOT_INTERACTIBLE : COLOR_SLOT_OTHER;
             double h = SLOT_BOX_HALF;
             drawAabb(player,
@@ -148,15 +145,9 @@ public final class InteractionDebugRenderer {
             center = interaction.getLocation();
         } else {
             InteractionData data = type.getInteractionData();
-            if (data == null) {
-                return;
-            }
             width = data.getWidth();
             height = data.getHeight();
             center = InteractionHandler.getInteractionLocation(furniture);
-            if (center == null) {
-                return;
-            }
         }
 
         double half = width / 2.0;

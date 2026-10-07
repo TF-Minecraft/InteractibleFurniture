@@ -236,6 +236,9 @@ public class SlotInteractionHandler {
     }
 
     private static boolean tryTakeFurniture(Player player, Furniture furniture, SlotDefinition slot) {
+        if (InteractibleFurniture.getInstance().getFurnitureManager().getByCarrier(player) != null) {
+            return false;
+        }
         if (!furniture.hasActiveFurnitureSlot(slot.getId())) {
             return false;
         }
@@ -311,6 +314,9 @@ public class SlotInteractionHandler {
 
     private static boolean tryPlaceItem(Player player, Furniture furniture,
             Entity furnitureEntity, SlotDefinition slot, ItemStack held) {
+        if (!(furnitureEntity instanceof ItemDisplay display)) {
+            return false;
+        }
         if (!slot.isItemAllowed(held)) {
             return false;
         }
@@ -326,14 +332,9 @@ public class SlotInteractionHandler {
         }
         toPlace = event.getItem();
         toPlace.setAmount(1);
-        held.setAmount(held.getAmount() - 1);
-
-        if (!(furnitureEntity instanceof ItemDisplay)) {
-            return false;
-        }
-
         PlacedSlot placed = furniture.getOrCreatePlacedSlot(slot.getId());
-        placed.spawnDisplayStand(furniture.getLoc(), toPlace, (ItemDisplay) furnitureEntity, event.getDisplayData());
+        placed.spawnDisplayStand(furniture.getLoc(), toPlace, display, event.getDisplayData());
+        held.setAmount(held.getAmount() - 1);
         InteractibleFurniture.getInstance().getFurnitureManager().persistFurniture(furniture);
         String path = TLibs.getItemAPI().getChecker().getAsStringPath(toPlace);
         String sound = "minecraft:entity.item_frame.add_item";

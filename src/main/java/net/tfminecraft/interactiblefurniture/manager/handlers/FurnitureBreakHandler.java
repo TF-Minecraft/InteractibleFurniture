@@ -61,7 +61,6 @@ public class FurnitureBreakHandler {
 
     private static boolean removeFurnitureInternal(UUID furnitureId, Map<UUID, Furniture> placed,
             Player breaker, String reason, boolean dropslots) {
-        if (!placed.containsKey(furnitureId)) return false;
         FurnitureBreakEvent event = new FurnitureBreakEvent(placed.get(furnitureId), breaker);
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled()) return false;
@@ -82,10 +81,6 @@ public class FurnitureBreakHandler {
 
     private static Set<UUID> collectConnectedFurniture(UUID seedId, Map<UUID, Furniture> placed) {
         Set<UUID> connected = new HashSet<>();
-        if (!placed.containsKey(seedId)) {
-            return connected;
-        }
-
         connected.add(seedId);
         boolean changed = true;
         while (changed) {
@@ -95,31 +90,12 @@ public class FurnitureBreakHandler {
 
             for (UUID id : new ArrayList<>(connected)) {
                 Furniture furniture = placed.get(id);
-                if (furniture == null) {
-                    continue;
-                }
-
                 for (Block barrier : new ArrayList<>(furniture.getBarrierBlocks())) {
                     findConnectedRecursive(barrier, placed, connected, checkedBarriers);
                 }
 
-                for (Map.Entry<UUID, Furniture> entry : placed.entrySet()) {
-                    UUID otherId = entry.getKey();
-                    if (connected.contains(otherId)) {
-                        continue;
-                    }
-                    Furniture other = entry.getValue();
-                    if (shouldExcludeFromConnectedBreak(other)) {
-                        continue;
-                    }
-                    Location origin = other.getOriginBlockLocation().orElse(null);
-                    if (origin == null) {
-                        continue;
-                    }
-                    if (furniture.getBarrierBlocks().contains(origin.getBlock())) {
-                        connected.add(otherId);
-                    }
-                }
+                // findConnectedRecursive includes every piece anchored to these barriers.
+
             }
 
             connected.removeIf(id -> !id.equals(seedId)

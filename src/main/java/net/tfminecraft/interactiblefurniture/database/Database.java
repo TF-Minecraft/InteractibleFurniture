@@ -145,15 +145,20 @@ public class Database {
             return;
         }
         for (File worldDir : worlds) {
-            File[] files = worldDir.listFiles((dir, name) -> name.endsWith(".json"));
-            if (files == null) {
+            String[] names = worldDir.list((dir, name) -> name.endsWith(".json") || name.endsWith(".json.bak"));
+            if (names == null) {
                 continue;
             }
-            for (File file : files) {
-                if (file.getName().endsWith(".json.bak") || file.getName().endsWith(".json.tmp")) {
-                    continue;
-                }
+            Set<String> chunkNames = new LinkedHashSet<>();
+            for (String name : names) {
+                chunkNames.add(name.endsWith(".bak") ? name.substring(0, name.length() - 4) : name);
+            }
+            for (String name : chunkNames) {
+                File file = new File(worldDir, name);
                 List<Furniture> loaded = tryReadChunkFile(file);
+                if (loaded == null) {
+                    loaded = tryReadChunkFile(new File(worldDir, name + ".bak"));
+                }
                 if (loaded == null) {
                     continue;
                 }
@@ -311,7 +316,9 @@ public class Database {
                     if (isCarriedRecord(record)) {
                         carriedByChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(id);
                     } else {
-                        collectRecordIds(record, placedIds);
+                        // Only a copy that loading can restore makes a carry recovery stale.
+                        // Removed types and slots can leave raw records that are intentionally skipped.
+                        collectFurnitureIds(deserializeFurniture(record.getAsJsonObject()), placedIds);
                     }
                 }
             }
@@ -403,13 +410,11 @@ public class Database {
         }
     }
 
-    private static void collectRecordIds(JsonElement record, Set<UUID> out) {
-        UUID id = recordEntityId(record);
-        if (id != null) out.add(id);
-        JsonElement nested = record.getAsJsonObject().get("activeFurnitureSlots");
-        if (nested == null || !nested.isJsonObject()) return;
-        for (Map.Entry<String, JsonElement> slot : nested.getAsJsonObject().entrySet()) {
-            if (slot.getValue().isJsonObject()) collectRecordIds(slot.getValue(), out);
+    private static void collectFurnitureIds(Furniture furniture, Set<UUID> out) {
+        if (furniture == null) return;
+        out.add(furniture.getEntityId());
+        for (PlacedFurnitureSlot slot : furniture.getActiveFurnitureSlots().values()) {
+            collectFurnitureIds(slot.getNested(), out);
         }
     }
 
@@ -529,9 +534,6 @@ public class Database {
         BlockFace originFace = null;
 
         if (attached) {
-            if (parent == null || parent.getLoc() == null) {
-                return null;
-            }
             loc = parent.getLoc().clone();
         } else {
             loc = deserializeLocation(obj.getAsJsonObject("location"));

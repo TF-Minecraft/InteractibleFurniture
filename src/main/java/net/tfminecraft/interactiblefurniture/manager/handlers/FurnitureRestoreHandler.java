@@ -55,15 +55,17 @@ public class FurnitureRestoreHandler {
             return null;
         }
 
-        if (!ensureDisplay(furniture)) {
-            return null;
+        if (!ensureDisplay(furniture, furniture)) {
+            // Keep valid saved state while its item provider is unavailable. A later
+            // chunk load can retry; dropping this record would destroy its contents.
+            return furniture;
         }
         restoreBarriers(furniture);
         if (furniture.getType().hasInteraction()) {
             InteractionHandler.updateInteractionPosition(furniture);
         }
-        restoreSlots(furniture);
-        restoreFurnitureSlots(furniture);
+        restoreSlots(furniture, furniture);
+        restoreFurnitureSlots(furniture, furniture);
         return furniture;
     }
 
@@ -121,33 +123,33 @@ public class FurnitureRestoreHandler {
         }
     }
 
-    private static void restoreFurnitureSlots(Furniture parent) {
+    private static void restoreFurnitureSlots(Furniture parent, Furniture root) {
         for (PlacedFurnitureSlot placed : parent.getActiveFurnitureSlots().values()) {
             Furniture nested = placed.getNested();
             if (nested == null) {
                 continue;
             }
             String slotId = placed.getId();
-            if (!ensureDisplay(nested)) {
+            if (!ensureDisplay(nested, root)) {
                 continue;
             }
             nested.setAttachment(parent.getEntityId(), slotId);
             FurnitureNestedDisplay.prepareAttached(nested);
             FurnitureNestedDisplay.syncNestedRoot(parent, slotId, nested);
-            restoreSlots(nested);
+            restoreSlots(nested, root);
             FurnitureNestedDisplay.syncItemSlots(nested);
-            restoreFurnitureSlots(nested);
+            restoreFurnitureSlots(nested, root);
         }
     }
 
-    private static boolean ensureDisplay(Furniture furniture) {
+    private static boolean ensureDisplay(Furniture furniture, Furniture root) {
         Entity existing = Bukkit.getEntity(furniture.getEntityId());
         if (existing instanceof ItemDisplay display && !display.isDead()) {
             FurniturePlacementHandler.tagDisplay(display, furniture.getEntityId());
             display.setBrightness(null);
             Location saved = furniture.getLoc();
-            if (display.getWorld().equals(saved.getWorld())
-                    && display.getLocation().distanceSquared(saved) > 1.0) {
+            if (!display.getWorld().equals(saved.getWorld())
+                    || display.getLocation().distanceSquared(saved) > 1.0) {
                 display.teleport(saved);
             }
             return true;
@@ -164,7 +166,7 @@ public class FurnitureRestoreHandler {
         furniture.setEntityId(spawned.getUniqueId());
         FurniturePlacementHandler.tagDisplay(spawned, spawned.getUniqueId());
         furniture.removeInteractionEntity();
-        InteractibleFurniture.getInstance().getFurnitureManager().markDirty(furniture);
+        InteractibleFurniture.getInstance().getFurnitureManager().markDirty(root);
         return true;
     }
 
@@ -185,7 +187,7 @@ public class FurnitureRestoreHandler {
         FurniturePlacementHandler.placeBarrierBlocks(type.getLayers(), furniture, originLoc.getBlock(), face);
     }
 
-    private static void restoreSlots(Furniture furniture) {
+    private static void restoreSlots(Furniture furniture, Furniture root) {
         Entity parent = Bukkit.getEntity(furniture.getEntityId());
         if (!(parent instanceof ItemDisplay display)) return;
 
@@ -207,7 +209,7 @@ public class FurnitureRestoreHandler {
             }
             if (item == null) continue;
             slot.spawnDisplayStand(furniture.getLoc(), item, display, null);
-            InteractibleFurniture.getInstance().getFurnitureManager().markDirty(furniture);
+            InteractibleFurniture.getInstance().getFurnitureManager().markDirty(root);
         }
     }
 
@@ -221,9 +223,6 @@ public class FurnitureRestoreHandler {
             return false;
         }
         FurnitureType type = furniture.getType();
-        if (type == null) {
-            return true;
-        }
         if (type.isSolid()) {
             return furniture.getBarrierBlocks().isEmpty();
         }
@@ -233,24 +232,16 @@ public class FurnitureRestoreHandler {
     private static void cleanupCarried(Furniture furniture) {
         Location dropLoc = furniture.getLoc();
         FurnitureType type = furniture.getType();
-        if (dropLoc != null && dropLoc.getWorld() != null && type != null) {
-            ItemStack furnitureItem = TLibs.getItemAPI().getCreator().getItemFromPath(type.getItemPath());
-            if (furnitureItem != null) {
-                dropLoc.getWorld().dropItemNaturally(dropLoc, furnitureItem);
+        ItemStack furnitureItem = TLibs.getItemAPI().getCreator().getItemFromPath(type.getItemPath());
+        if (furnitureItem != null) {
+            dropLoc.getWorld().dropItemNaturally(dropLoc, furnitureItem);
+        }
+        for (PlacedSlot slot : new java.util.ArrayList<>(furniture.getActiveSlots().values())) {
+            ItemStack item = slot.getCurrentItem();
+            if (item != null) {
+                dropLoc.getWorld().dropItemNaturally(dropLoc, item);
             }
-            for (PlacedSlot slot : new java.util.ArrayList<>(furniture.getActiveSlots().values())) {
-                ItemStack item = slot.getCurrentItem();
-                if (item != null) {
-                    dropLoc.getWorld().dropItemNaturally(dropLoc, item);
-                }
-                slot.removeDisplayStand(dropLoc.getWorld());
-            }
-        } else {
-            for (PlacedSlot slot : furniture.getActiveSlots().values()) {
-                if (dropLoc != null && dropLoc.getWorld() != null) {
-                    slot.removeDisplayStand(dropLoc.getWorld());
-                }
-            }
+            slot.removeDisplayStand(dropLoc.getWorld());
         }
         furniture.clearActiveSlots();
         furniture.removeInteractionEntity();
