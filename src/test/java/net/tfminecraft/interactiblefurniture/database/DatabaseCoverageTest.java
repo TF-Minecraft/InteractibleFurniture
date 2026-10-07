@@ -208,6 +208,86 @@ class DatabaseCoverageTest extends FurnitureTestServer {
                 "offline indexes must see the same recoverable furniture that a chunk load will restore");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"furniture\":null}", "{\"furniture\":false}",
+            "{\"furniture\":{}}", "{\"furniture\":7}", "{\"furniture\":\"lost\"}"})
+    void invalidFurnitureContainersUseTheValidBackupForLoadingAndOfflineVisits(String content) throws Exception {
+        Furniture placed = record(CRATE, 2, 3);
+        placed.getOrCreatePlacedSlot("lid").setModel(new ItemStack(Material.DIAMOND, 3));
+        save(2, 3, placed);
+        save(2, 3, placed);
+        Path backup = chunk(2, 3).resolveSibling("2_3.json.bak");
+        String committed = Files.readString(backup);
+        write(chunk(2, 3), content);
+
+        List<Furniture> loaded = database().loadChunk(world.getName(), 2, 3);
+        assertEquals(List.of(placed.getEntityId()), loaded.stream().map(Furniture::getEntityId).toList());
+        assertEquals(new ItemStack(Material.DIAMOND, 3), loaded.getFirst().getActiveSlot("lid").orElseThrow().getCurrentItem());
+        List<UUID> visited = new ArrayList<>();
+        database().visitSavedFurniture(f -> visited.add(f.getEntityId()));
+        assertEquals(List.of(placed.getEntityId()), visited);
+        assertEquals(content, Files.readString(chunk(2, 3)), "Recovery must not rewrite the damaged main file while reading it");
+        assertEquals(committed, Files.readString(backup));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"furniture\":null}", "{\"furniture\":false}",
+            "{\"furniture\":{}}", "{\"furniture\":7}", "{\"furniture\":\"lost\"}"})
+    void startupUsesBackupPlacedRecordsToPreventDuplicateCarriedFurnitureAndContents(String content) throws Exception {
+        Furniture moved = record(CRATE, 1, 0);
+        moved.setPersistedCarried(true);
+        moved.getOrCreatePlacedSlot("lid").setModel(new ItemStack(Material.DIAMOND, 3));
+        Furniture recoverable = record(CRATE, 1, 0);
+        recoverable.setPersistedCarried(true);
+        save(1, 0, moved, recoverable);
+        save(1, 0, moved, recoverable);
+        Furniture placed = new Furniture(CRATE, new Location(world, 33.5, 65, 1.5), moved.getEntityId(),
+                new Location(world, 33, 64, 1), BlockFace.UP);
+        placed.getOrCreatePlacedSlot("lid").setModel(new ItemStack(Material.DIAMOND, 3));
+        save(2, 0, placed);
+        save(2, 0, placed);
+        write(chunk(2, 0), content);
+
+        server.getPluginManager().disablePlugin(plugin);
+        server.getPluginManager().enablePlugin(plugin);
+        List<UUID> remainingRecovery = database().loadChunk(world.getName(), 1, 0)
+                .stream().map(Furniture::getEntityId).toList();
+        loadChunk(1, 0);
+
+        assertEquals(List.of(Material.BARREL), droppedItems(),
+                "Only the unrelated recovery record may drop; the placed crate and its diamonds already survive in the backup");
+        assertEquals(List.of(recoverable.getEntityId()), remainingRecovery);
+        assertFalse(Files.readString(chunk(1, 0).resolveSibling("1_0.json.bak")).contains(moved.getEntityId().toString()));
+        Furniture restored = database().loadChunk(world.getName(), 2, 0).getFirst();
+        assertEquals(moved.getEntityId(), restored.getEntityId());
+        assertFalse(restored.isPersistedCarried());
+        assertEquals(new ItemStack(Material.DIAMOND, 3), restored.getActiveSlot("lid").orElseThrow().getCurrentItem());
+        loadChunk(1, 0);
+        assertEquals(List.of(Material.BARREL), droppedItems(), "Recovery is consumed exactly once");
+    }
+
+    @Test
+    void explicitEmptyFurnitureArrayRemainsAuthoritativeOverAnOlderBackup() throws Exception {
+        Furniture carried = record(CRATE, 1, 0);
+        carried.setPersistedCarried(true);
+        save(1, 0, carried);
+        Furniture formerPlaced = new Furniture(CRATE, new Location(world, 33.5, 65, 1.5), carried.getEntityId(),
+                new Location(world, 33, 64, 1), BlockFace.UP);
+        save(2, 0, formerPlaced);
+        save(2, 0, formerPlaced);
+        write(chunk(2, 0), "{\"furniture\":[]}");
+
+        assertTrue(database().loadChunk(world.getName(), 2, 0).isEmpty());
+        List<Furniture> visited = new ArrayList<>();
+        database().visitSavedFurniture(visited::add);
+        assertTrue(visited.isEmpty());
+        assertEquals(0, database().removeStaleCarriedRecords((key, id) -> {
+            throw new AssertionError("The older backup must not override an explicitly empty main file");
+        }));
+        assertEquals(List.of(carried.getEntityId()), database().loadChunk(world.getName(), 1, 0)
+                .stream().map(Furniture::getEntityId).toList());
+    }
+
     @Test
     void visitorSkipsCarryRecoveryTemporaryFilesAndUnrecoverableChunks() throws Exception {
         Furniture visible = record(CRATE, 0, 0);

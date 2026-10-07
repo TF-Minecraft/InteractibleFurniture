@@ -215,7 +215,7 @@ public class Database {
 
     private static JsonArray furnitureRecords(JsonObject root) {
         if (!root.has("furniture") || !root.get("furniture").isJsonArray()) {
-            return new JsonArray();
+            throw new JsonParseException("Chunk furniture must be an array");
         }
         return root.getAsJsonArray("furniture");
     }
