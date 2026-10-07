@@ -40,6 +40,16 @@ subshell keeps it out of your session and Maven, and Maven only runs if both
 preparation steps succeed. CI supplies it from `DEPS_TOKEN`.
 
 Tests use JUnit, Mockito, and MockBukkit and run without a live Minecraft server.
+`mvn clean verify` also requires **100% production line coverage** with JaCoCo;
+there are no class or package exclusions. The HTML report is at
+`target/site/jacoco/index.html`, and CI uploads the HTML/XML coverage reports.
+
+Tests exercise configuration reloads, placement and carrying, nested transforms,
+item exchanges, chunk persistence and backup recovery, plugin lifecycle,
+commands, debug rendering, and protection integrations. Filesystem failure tests
+use isolated temporary directories and skip permission fixtures only when the
+host cannot enforce them.
+
 
 ## License
 

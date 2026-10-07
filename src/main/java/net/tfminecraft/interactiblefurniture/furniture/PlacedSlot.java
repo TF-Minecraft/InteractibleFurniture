@@ -191,9 +191,6 @@ public final class PlacedSlot {
         currentData = data;
 
         Location spawnLoc = parentDisplay.getLocation();
-        if (spawnLoc.getWorld() == null) {
-            spawnLoc = baseLocation;
-        }
 
         ItemDisplay display = (ItemDisplay) spawnLoc.getWorld().spawnEntity(spawnLoc, EntityType.ITEM_DISPLAY);
         display.setItemStack(item.clone());

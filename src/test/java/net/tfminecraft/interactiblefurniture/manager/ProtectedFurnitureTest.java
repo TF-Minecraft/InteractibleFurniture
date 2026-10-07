@@ -193,6 +193,9 @@ class ProtectedFurnitureTest extends FurnitureTestServer {
         FurnitureProtection.use(new DenyThief());
         thief.setSneaking(true);
 
+        assertEquals(java.util.Set.of(manager), java.util.Arrays.stream(PlayerInteractEvent.getHandlerList().getRegisteredListeners())
+                .map(org.bukkit.plugin.RegisteredListener::getListener).filter(l -> l instanceof FurnitureManager)
+                .collect(java.util.stream.Collectors.toSet()), "only the current manager receives interactions");
         PlayerInteractEvent carry = click(thief, Action.RIGHT_CLICK_BLOCK, ground(4, 4));
         click(thief, Action.LEFT_CLICK_BLOCK, ground(4, 4));
 

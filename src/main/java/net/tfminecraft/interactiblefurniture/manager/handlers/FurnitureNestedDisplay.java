@@ -35,6 +35,7 @@ public final class FurnitureNestedDisplay {
         nested.setLoc(worldLoc);
 
         syncNestedItemSlots(nested, nestedDisplay);
+        onParentTransformChanged(nested);
     }
 
     public static void onParentTransformChanged(Furniture parent) {
@@ -91,6 +92,7 @@ public final class FurnitureNestedDisplay {
         });
         nested.spawnInteractionEntity();
         syncNestedItemSlots(nested, nestedDisplay);
+        onParentTransformChanged(nested);
     }
 
     private static void syncNestedItemSlots(Furniture nested, ItemDisplay nestedDisplay) {
@@ -103,9 +105,6 @@ public final class FurnitureNestedDisplay {
     }
 
     private static ItemDisplay getDisplay(Furniture furniture) {
-        if (furniture == null) {
-            return null;
-        }
         var entity = Bukkit.getEntity(furniture.getEntityId());
         return entity instanceof ItemDisplay display ? display : null;
     }

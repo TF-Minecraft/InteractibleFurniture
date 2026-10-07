@@ -3,6 +3,7 @@ package net.tfminecraft.interactiblefurniture.loaders;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -24,20 +25,26 @@ public class FurnitureLoader implements LoaderInterface {
 
     @Override
     public void load(File configFile) {
+        map.putAll(read(configFile));
+    }
+
+    /** Parse a complete file before publishing any of its definitions. */
+    public static Map<String, FurnitureType> read(File configFile) {
         FileConfiguration config = new YamlConfiguration();
         try {
             config.load(configFile);
         } catch (IOException | InvalidConfigurationException e) {
-            e.printStackTrace();
-            return;
+            throw new IllegalArgumentException("Cannot load " + configFile + ": " + e.getMessage(), e);
         }
 
+        Map<String, FurnitureType> loaded = new HashMap<>();
         Set<String> keys = config.getKeys(false);
         for (String key : keys) {
             if (!config.isConfigurationSection(key)) continue;
             FurnitureType ft = new FurnitureType(key, config.getConfigurationSection(key));
-            map.put(key, ft);
+            loaded.put(key, ft);
         }
+        return loaded;
     }
 
     public static FurnitureType getByString(String id) {

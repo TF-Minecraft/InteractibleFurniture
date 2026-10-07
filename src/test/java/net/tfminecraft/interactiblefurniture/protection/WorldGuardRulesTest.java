@@ -118,4 +118,17 @@ class WorldGuardRulesTest {
         assertTrue(FurnitureProtection.canInteract(player, furniture));
         assertTrue(FurnitureProtection.canDamage(player, furniture));
     }
+    @Test
+    void defaultHookUsesTheLiveWorldGuardProtectionQuery() {
+        var worldGuard=mock(com.sk89q.worldguard.bukkit.WorldGuardPlugin.class);
+        when(worldGuard.createProtectionQuery()).thenReturn(query);
+        try (var singleton=org.mockito.Mockito.mockStatic(com.sk89q.worldguard.bukkit.WorldGuardPlugin.class)) {
+            singleton.when(com.sk89q.worldguard.bukkit.WorldGuardPlugin::inst).thenReturn(worldGuard);
+            Furniture furniture=furnitureWithDisplay();
+            when(query.testEntityInteract(eq(player),any())).thenReturn(true);
+            assertTrue(WorldGuardRules.create().canInteract(player,furniture));
+            verify(worldGuard).createProtectionQuery();
+        }
+    }
+
 }
