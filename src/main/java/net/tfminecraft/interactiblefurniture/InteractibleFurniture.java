@@ -84,7 +84,9 @@ public class InteractibleFurniture extends JavaPlugin{
                 furniture.putAll(FurnitureLoader.read(file));
             }
         }
-        Map<String, String> sounds = SoundLoader.read(new File(getDataFolder(), "sounds.yml"));
+        File soundsFile = new File(getDataFolder(), "sounds.yml");
+        Map<String, String> sounds = java.nio.file.Files.notExists(soundsFile.toPath())
+                ? Map.of() : SoundLoader.read(soundsFile);
         // Publish only after every file has loaded. Keep map identities used by integrations.
         FurnitureLoader.getMap().clear();
         FurnitureLoader.getMap().putAll(furniture);

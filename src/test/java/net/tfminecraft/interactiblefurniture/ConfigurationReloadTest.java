@@ -40,7 +40,7 @@ class ConfigurationReloadTest extends FurnitureTestServer {
     }
 
     @Test
-    void brokenOrMissingSoundsLeaveFurnitureAndSoundsUntouched() throws Exception {
+    void brokenSoundsPreserveRegistriesWhileAbsentOptionalSoundsClearOnlySoundDefinitions() throws Exception {
         var furniture = Map.copyOf(FurnitureLoader.getMap());
         var sounds = Map.copyOf(SoundLoader.getMap());
         Path file = plugin.getDataFolder().toPath().resolve("sounds.yml");
@@ -49,9 +49,14 @@ class ConfigurationReloadTest extends FurnitureTestServer {
         assertEquals(furniture, FurnitureLoader.getMap());
         assertEquals(sounds, SoundLoader.getMap());
         Files.delete(file);
-        assertFalse(plugin.reloadAll());
-        assertEquals(furniture, FurnitureLoader.getMap());
-        assertEquals(sounds, SoundLoader.getMap());
+        var soundRegistry = SoundLoader.getMap();
+        var furnitureRegistry = FurnitureLoader.getMap();
+        Files.writeString(plugin.getDataFolder().toPath().resolve("furniture/additional.yml"), "additional:\n  item: test.crate\n");
+        assertTrue(plugin.reloadAll());
+        assertSame(soundRegistry, SoundLoader.getMap());
+        assertTrue(soundRegistry.isEmpty());
+        assertSame(furnitureRegistry, FurnitureLoader.getMap());
+        assertTrue(furnitureRegistry.containsKey("additional"));
     }
 
     @Test
