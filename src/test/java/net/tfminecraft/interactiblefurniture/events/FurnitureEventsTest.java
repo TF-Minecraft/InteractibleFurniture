@@ -18,6 +18,12 @@ import net.tfminecraft.interactiblefurniture.furniture.data.DisplayData;
 
 /** Public event payloads and mutation/cancellation contract consumed by other plugins. */
 class FurnitureEventsTest {
+    @org.junit.jupiter.api.BeforeEach
+    void startServer() { org.mockbukkit.mockbukkit.MockBukkit.mock(); }
+
+    @org.junit.jupiter.api.AfterEach
+    void stopServer() { org.mockbukkit.mockbukkit.MockBukkit.unmock(); }
+
     @Test
     void eventsRetainTheirPayloadAndHaveIndependentHandlerLists() {
         Player player = mock(Player.class);

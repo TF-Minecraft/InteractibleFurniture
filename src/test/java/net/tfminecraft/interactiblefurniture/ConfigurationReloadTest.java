@@ -87,8 +87,13 @@ class ConfigurationReloadTest extends FurnitureTestServer {
         var startup=org.mockito.Mockito.spy(plugin); var logger=org.mockito.Mockito.mock(java.util.logging.Logger.class);
         org.mockito.Mockito.doReturn(null).when(startup).getCommand("if");
         org.mockito.Mockito.doReturn(logger).when(startup).getLogger();
-        startup.onEnable();
-        org.mockito.Mockito.verify(logger).severe("Command 'if' missing from plugin.yml");
+        try {
+            startup.onEnable();
+            org.mockito.Mockito.verify(logger).severe("Command 'if' missing from plugin.yml");
+        } finally {
+            // The spy is not a registered plugin, so MockBukkit shutdown cannot unregister its listeners.
+            org.bukkit.event.HandlerList.unregisterAll(startup);
+        }
     }
 
 }
