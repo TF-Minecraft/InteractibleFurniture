@@ -23,33 +23,22 @@ Technical documentation is maintained in [TF-Minecraft/Docs](https://github.com/
 
 ## Tests
 
-Install the pinned shared plugin dependencies, download the private build
-inputs, then run the build with Java 21. In Bash:
-
-```bash
-python3 path/to/TLibs/tools/install-plugins.py --pom pom.xml --mode pinned &&
-  (read -rsp 'ServerAssets token: ' GH_TOKEN && echo && export GH_TOKEN &&
-    bash .github/scripts/prepare-release.sh) &&
-  mvn clean verify
-```
-
-The installer comes from a separate TLibs checkout
-(`git clone https://github.com/TF-Minecraft/TLibs.git`); point `path/to/TLibs` at it. The token needs Contents read access
-to TF-Minecraft/ServerAssets. The prompt keeps it out of shell history, the
-subshell keeps it out of your session and Maven, and Maven only runs if both
-preparation steps succeed. CI supplies it from `DEPS_TOKEN`.
+With Java 21 and the
+[pinned dependencies prepared](https://github.com/TF-Minecraft/Docs/blob/main/projects/InteractibleFurniture/README.md#build-and-dependencies),
+run `mvn clean verify`.
 
 Tests use JUnit, Mockito, and MockBukkit and run without a live Minecraft server.
 `mvn clean verify` also requires **100% production line coverage** with JaCoCo;
-there are no class or package exclusions. The HTML report is at
-`target/site/jacoco/index.html`, and CI uploads the HTML/XML coverage reports.
+there are no class or package exclusions. Surefire reports are in
+`target/surefire-reports/` and JaCoCo reports are in `target/site/jacoco/`.
+Verification requires the coverage execution data and XML report to exist.
+CI uploads test and coverage reports.
 
 Tests exercise configuration reloads, placement and carrying, nested transforms,
 item exchanges, chunk persistence and backup recovery, plugin lifecycle,
 commands, debug rendering, and protection integrations. Filesystem failure tests
 use isolated temporary directories and skip permission fixtures only when the
 host cannot enforce them.
-
 
 ## License
 
