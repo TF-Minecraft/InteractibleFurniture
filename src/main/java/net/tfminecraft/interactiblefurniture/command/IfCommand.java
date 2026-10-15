@@ -242,14 +242,15 @@ public final class IfCommand implements CommandExecutor, TabCompleter {
             List<String> completions = new ArrayList<>();
             if (sender.hasPermission(RELOAD_PERMISSION)) {
                 completions.add("reload");
-                completions.add("nested");
+                if (sender instanceof Player) completions.add("nested");
             }
-            if (sender.hasPermission(DEBUG_PERMISSION)) {
+            if (sender instanceof Player && sender.hasPermission(DEBUG_PERMISSION)) {
                 completions.add("debug");
             }
             TabCleaner.cleanTab(completions, args);
             return completions;
         }
+        if (!(sender instanceof Player)) return List.of();
         if (args.length == 2 && args[0].equalsIgnoreCase("nested") && sender.hasPermission(RELOAD_PERMISSION)) {
             List<String> completions = new ArrayList<>();
             completions.add("attach");
