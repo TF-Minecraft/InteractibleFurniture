@@ -339,6 +339,20 @@ class IfCommandCoverageTest {
         assertEquals(expected, command.onTabComplete(player, null, "if", args));
     }
 
+    @Test
+    void consoleCompletionOnlyOffersItsExecutableReloadAction() {
+        CommandSender console = mock(CommandSender.class);
+        when(console.hasPermission(RELOAD)).thenReturn(true);
+        assertEquals(List.of("reload"), command.onTabComplete(console, null, "if", new String[]{""}));
+        assertEquals(List.of("reload"), command.onTabComplete(console, null, "if", new String[]{"RE"}));
+        for (String action : List.of("nested", "debug")) {
+            assertTrue(command.onTabComplete(console, null, "if", new String[]{action}).isEmpty());
+            assertTrue(command.onTabComplete(console, null, "if", new String[]{action, ""}).isEmpty());
+        }
+        when(console.hasPermission(RELOAD)).thenReturn(false);
+        assertTrue(command.onTabComplete(console, null, "if", new String[]{""}).isEmpty());
+    }
+
     private static Stream<Arguments> completions() {
         return Stream.of(
                 Arguments.of(true, true, new String[]{""}, List.of("reload", "nested", "debug")),
