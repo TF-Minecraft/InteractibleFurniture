@@ -618,15 +618,30 @@ public class FurnitureManager implements Listener {
         return getFurnitureInChunk(chunk, true);
     }
 
+    /**
+     * Compares block coordinates instead of calling {@code getChunk()}, which
+     * looks up (and if needed loads) the chunk of every placed piece.
+     */
     private Set<Furniture> getFurnitureInChunk(Chunk chunk, boolean includeCarried) {
         Set<Furniture> set = new HashSet<>();
+        World world = chunk.getWorld();
+        int chunkX = chunk.getX();
+        int chunkZ = chunk.getZ();
         for (Furniture f : placed.values()) {
             if (!includeCarried && f.isCarried()) continue;
-            if (f.getLoc().getChunk().equals(chunk)) {
+            if (isInChunk(f.getLoc(), world, chunkX, chunkZ)) {
                 set.add(f);
             }
         }
         return set;
+    }
+
+    private static boolean isInChunk(Location loc, World world, int chunkX, int chunkZ) {
+        return loc != null
+                && loc.getBlockX() >> 4 == chunkX
+                && loc.getBlockZ() >> 4 == chunkZ
+                && loc.isWorldLoaded()
+                && world.equals(loc.getWorld());
     }
 
     public void markDirty(Furniture furniture) {
