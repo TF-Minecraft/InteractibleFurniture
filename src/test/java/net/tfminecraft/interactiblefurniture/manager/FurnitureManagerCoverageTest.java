@@ -82,6 +82,33 @@ class FurnitureManagerCoverageTest extends FurnitureTestServer {
     }
 
     @Test
+    void chunkQueriesMatchByBlockCoordinatesAndWorldWithoutLookingUpEachPiecesChunk() {
+        Furniture west = place(CRATE, -1, 4);
+        Furniture south = place(TABLE, 4, 20);
+        Location far = spy(new Location(world, 5000.5, 65, 5000.5));
+        Furniture unloaded = mock(Furniture.class);
+        when(unloaded.getLoc()).thenReturn(far);
+        Furniture noLocation = mock(Furniture.class);
+        Furniture noWorld = mock(Furniture.class);
+        when(noWorld.getLoc()).thenReturn(new Location(null, 4.5, 65, 4.5));
+        Map<UUID, Furniture> fakes = Map.of(UUID.randomUUID(), unloaded, UUID.randomUUID(), noLocation,
+                UUID.randomUUID(), noWorld);
+        manager.getPlacedFurniture().putAll(fakes);
+        WorldMock other = server.addSimpleWorld("other");
+        try {
+            assertEquals(Set.of(west), manager.getFurnitureInChunk(world.getChunkAt(-1, 0)));
+            assertEquals(Set.of(south), manager.getFurnitureInChunk(world.getChunkAt(0, 1)));
+            assertEquals(Set.of(), manager.getFurnitureInChunk(world.getChunkAt(0, 0)));
+            assertEquals(Set.of(), manager.getFurnitureForSave(other.getChunkAt(0, 1)));
+            assertEquals(Set.of(unloaded), manager.getFurnitureInChunk(world.getChunkAt(312, 312)));
+            verify(far, never()).getChunk();
+        } finally {
+            // The fakes cannot be saved by the shutdown save.
+            fakes.keySet().forEach(manager.getPlacedFurniture()::remove);
+        }
+    }
+
+    @Test
     void savedFurnitureVisitorIsSafeBeforeStartupAndDelegatesAfterStartup() {
         List<Furniture> found = new ArrayList<>();
         new FurnitureManager().visitSavedFurniture(found::add);
