@@ -1,3 +1,5 @@
+# any-slot: true  lets a click use the nearest slot that can act wherever it lands: an item goes into the
+#   next free slot and an empty hand takes from a filled one (default false: the slot nearest the click).
 # Example furniture definitions
 # Key is the furniture id used in code and config references
 

@@ -97,7 +97,7 @@ public class SlotInteractionHandler {
         FurnitureType type = furniture.getType();
         if (type != null) {
             for (SlotDefinition slot : type.getSlots().values()) {
-                if (!slotAcceptsHeld(slot, held)) {
+                if (!slotAcceptsHeld(slot, held) || !slotCanActNow(furniture, slot, held)) {
                     continue;
                 }
                 Location slotLoc = slot.computeDisplayLocation(
@@ -113,6 +113,15 @@ public class SlotInteractionHandler {
         }
 
         return best;
+    }
+
+    /** With any-slot, an item goes to a free slot and an empty hand takes from a filled one, wherever the click lands. */
+    private static boolean slotCanActNow(Furniture furniture, SlotDefinition slot, ItemStack held) {
+        if (furniture.getType() == null || !furniture.getType().usesAnySlot()) {
+            return true;
+        }
+        boolean filled = furniture.getActiveSlot(slot.getId()).isPresent();
+        return held == null || held.getType().isAir() ? filled : !filled;
     }
 
     private static boolean slotAcceptsHeld(SlotDefinition slot, ItemStack held) {
@@ -189,7 +198,7 @@ public class SlotInteractionHandler {
             boolean canInteract = item == null || item.getType().isAir()
                     ? slot.canInteractEmptyHand()
                     : slot.canInteract(item);
-            if (!canInteract) continue;
+            if (!canInteract || !slotCanActNow(furniture, slot, item)) continue;
             Location slotLoc = slot.computeDisplayLocation(
                 furniture.getLoc(),
                 (ItemDisplay) furnitureEntity,

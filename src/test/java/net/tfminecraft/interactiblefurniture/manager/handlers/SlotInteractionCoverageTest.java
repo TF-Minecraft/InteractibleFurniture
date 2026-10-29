@@ -199,6 +199,43 @@ class SlotInteractionCoverageTest extends DisplayTestRig {
         assertFalse(SlotInteractionHandler.tryAttachCarried(player,table,furniture,new Vector()));
     }
     @Test
+    void anySlotFurnitureFillsAFreeSlotAndTakesFromAFilledOneWhereverTheClickLands() throws Exception {
+        type("mould", """
+                item: v.cauldron
+                any-slot: true
+                slots:
+                  top:
+                    input_1:
+                      whitelist: ['*']
+                      interactible: true
+                    input_2:
+                      whitelist: ['*']
+                      interactible: true
+                      offset: {x: 2}
+                """);
+        Furniture mould = furniture("mould");
+        ItemDisplay display = (ItemDisplay) entities.get(mould.getEntityId());
+        assertTrue(mould.getType().usesAnySlot());
+        assertFalse(furniture.getType().usesAnySlot());
+        Vector nearFirst = new Vector(1, 64, 1);
+        ItemStack milk = new ItemStack(Material.MILK_BUCKET);
+        assertNull(SlotInteractionHandler.findBestSlotHit(nearFirst, mould, display, null), "Nothing to take yet");
+        assertEquals("input_1", SlotInteractionHandler.findBestSlotHit(nearFirst, mould, display, milk).slot().getId());
+        mould.getOrCreatePlacedSlot("input_1").setModel(milk);
+        assertEquals("input_2", SlotInteractionHandler.findBestSlotHit(nearFirst, mould, display, milk).slot().getId(),
+                "A filled slot near the click is skipped for the next free one");
+        assertEquals("input_1", SlotInteractionHandler.findBestSlotHit(nearFirst, mould, display, null).slot().getId());
+
+        player.getInventory().setItemInMainHand(new ItemStack(Material.STONE));
+        Block block = mock(Block.class); when(block.getWorld()).thenReturn(world);
+        when(block.getLocation()).thenReturn(new Location(world, 1, 64, 1));
+        assertTrue(SlotInteractionHandler.handleSlotInteraction(player, block, Action.RIGHT_CLICK_BLOCK, mould, display, BlockFace.UP));
+        assertTrue(mould.getActiveSlot("input_2").isPresent());
+        assertFalse(SlotInteractionHandler.handleSlotInteraction(player, block, Action.RIGHT_CLICK_BLOCK, mould, display, BlockFace.UP),
+                "A full mould takes nothing more");
+    }
+
+    @Test
     void slotlessFurniturePublishesAnInteractionWithoutClaimingTheClick() throws Exception {
         type("decoration","item: v.paper"); Furniture f=furniture("decoration");
         java.util.List<Furniture> events=new java.util.ArrayList<>(); listen(FurnitureInteractEvent.class,e->events.add(e.getFurniture()));

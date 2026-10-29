@@ -36,6 +36,7 @@ public class FurnitureType {
     private final boolean pickup; //allow picking up the furniture with right click (if slots are empty)
     private final boolean carry; // allow shift-right-click carry (slots may have contents)
     private final boolean placeInside; // anchor to clicked block center instead of block above
+    private final boolean anySlot; // a click uses the nearest slot that can act: free to place, filled to take
     private final Set<Material> allowedBlocks; // empty = any block; non-empty = whitelist
     private final List<boolean[][]> layers; // parsed layers (each is size x size boolean matrix)
     private final Map<String, SlotDefinition> slots;
@@ -63,6 +64,7 @@ public class FurnitureType {
         this.pickup = cfg.getBoolean("pickup", false);
         this.carry = cfg.getBoolean("carry", false);
         this.placeInside = cfg.getBoolean("place-inside", false);
+        this.anySlot = cfg.getBoolean("any-slot", false);
         this.allowedBlocks = new HashSet<>();
         for (String blockName : cfg.getStringList("allowed-blocks")) {
             try {
@@ -296,6 +298,7 @@ public class FurnitureType {
     public boolean canPickup() { return pickup; }
     public boolean canCarry() { return carry; }
     public boolean canPlaceInside() { return placeInside; }
+    public boolean usesAnySlot() { return anySlot; }
     public boolean isAllowedBlock(Material material) {
         return allowedBlocks.isEmpty() || allowedBlocks.contains(material);
     }
