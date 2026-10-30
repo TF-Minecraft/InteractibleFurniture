@@ -1,6 +1,5 @@
 package net.tfminecraft.interactiblefurniture.manager.handlers;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -83,18 +82,11 @@ public class FurnitureRestoreHandler {
         if (placed == null || furniture.getEntityId() == null) {
             return false;
         }
-        Set<UUID> liveIds = new HashSet<>();
-        for (Furniture live : placed.values()) {
-            collectAllFurnitureIds(live, liveIds);
-        }
-        return liveIds.contains(furniture.getEntityId());
+        return new LiveFurnitureIds(placed, null).contains(furniture.getEntityId());
     }
 
     public static void reconcileChunk(Chunk chunk, Map<UUID, Furniture> placed) {
-        Set<UUID> knownIds = new HashSet<>();
-        for (Furniture furniture : placed.values()) {
-            collectAllFurnitureIds(furniture, knownIds);
-        }
+        LiveFurnitureIds knownIds = new LiveFurnitureIds(placed, chunk);
 
         for (Entity entity : chunk.getEntities()) {
             if (entity instanceof ItemDisplay display) {
