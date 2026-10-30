@@ -48,6 +48,22 @@ class PlacedFurnitureMapTest {
     }
 
     @Test
+    void editingAPassedOrReturnedLocationCannotMoveAPieceBehindTheIndex() {
+        Location placed = new Location(world, 0.5, 65, 0.5);
+        Furniture piece = new Furniture("crate", placed, UUID.randomUUID());
+        map.put(piece.getEntityId(), piece);
+
+        placed.add(100, 0, 100);
+        piece.getLoc().add(200, 0, 200);
+
+        assertEquals(0.5, piece.getLoc().getX());
+        assertEquals(Set.of(piece), in(world, 0, 0));
+        piece.setLoc(new Location(world, 40, 65, 40));
+        assertEquals(Set.of(piece), in(world, 2, 2));
+        assertTrue(in(world, 0, 0).isEmpty());
+    }
+
+    @Test
     void piecesAreFoundByTheChunkOfTheirBlock() {
         Furniture origin = at(world, 0.5, 15.9);
         Furniture west = at(world, -0.1, 3);

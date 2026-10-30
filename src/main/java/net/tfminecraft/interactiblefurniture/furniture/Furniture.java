@@ -63,7 +63,7 @@ public class Furniture {
 
     public Furniture(String id, Location loc, UUID entityId, Location originBlockLocation, org.bukkit.block.BlockFace originBlockFace) {
         this.id = id;
-        this.loc = loc;
+        this.loc = loc != null ? loc.clone() : null;
         this.entityId = entityId;
         this.originBlockLocation = originBlockLocation;
         this.originBlockFace = originBlockFace;
@@ -77,9 +77,9 @@ public class Furniture {
         return FurnitureLoader.getByString(id);
     }
 
-    /** The live location. Change it with {@link #setLoc}, never in place, so the chunk index follows. */
+    /** A copy of the location: change it with {@link #setLoc}, so the chunk index follows. */
     public Location getLoc() {
-        return loc;
+        return loc != null ? loc.clone() : null;
     }
 
     public UUID getEntityId() {
