@@ -54,6 +54,8 @@ public class Furniture {
     private Location lastLoc = null;
     private Location baseResetLoc = null;
     private UUID interactionEntityId;
+    /** The placed-furniture map indexing this piece by chunk, told when it moves. */
+    transient PlacedFurnitureMap index;
 
     public Furniture(String typeId, Location loc, UUID entityId) {
         this(typeId, loc, entityId, null, null);
@@ -61,7 +63,7 @@ public class Furniture {
 
     public Furniture(String id, Location loc, UUID entityId, Location originBlockLocation, org.bukkit.block.BlockFace originBlockFace) {
         this.id = id;
-        this.loc = loc;
+        this.loc = loc != null ? loc.clone() : null;
         this.entityId = entityId;
         this.originBlockLocation = originBlockLocation;
         this.originBlockFace = originBlockFace;
@@ -75,8 +77,9 @@ public class Furniture {
         return FurnitureLoader.getByString(id);
     }
 
+    /** A copy of the location: change it with {@link #setLoc}, so the chunk index follows. */
     public Location getLoc() {
-        return loc;
+        return loc != null ? loc.clone() : null;
     }
 
     public UUID getEntityId() {
@@ -89,6 +92,13 @@ public class Furniture {
 
     public void setLoc(Location loc) {
         this.loc = loc != null ? loc.clone() : null;
+        moved();
+    }
+
+    private void moved() {
+        if (index != null) {
+            index.relocate(this);
+        }
     }
 
     public void setOriginBlock(Location originBlockLocation, org.bukkit.block.BlockFace originBlockFace) {
@@ -282,6 +292,7 @@ public class Furniture {
     public void setFromDisplay(ItemDisplay newDisplay, Block block, BlockFace face) {
         // Update stored location
         this.loc = newDisplay.getLocation().clone();
+        moved();
 
         // Update origin block & face (for clicking interaction, breaking logic, etc)
         this.originBlockLocation = block.getLocation().clone();
@@ -511,7 +522,10 @@ public class Furniture {
     }
 
     public void remove(boolean dropslots) {
-        if(isCarried()) loc = holder.getLocation();
+        if(isCarried()) {
+            loc = holder.getLocation();
+            moved();
+        }
         // Also drop the furniture if needed, handled by your existing code
         FurnitureBreakHandler.removeFurniture(
                 entityId, 

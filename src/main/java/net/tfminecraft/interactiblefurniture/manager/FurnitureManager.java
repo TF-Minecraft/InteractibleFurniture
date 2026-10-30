@@ -43,6 +43,7 @@ import net.tfminecraft.interactiblefurniture.events.FurnitureInteractEvent;
 import net.tfminecraft.interactiblefurniture.events.FurniturePunchEvent;
 import net.tfminecraft.interactiblefurniture.furniture.Furniture;
 import net.tfminecraft.interactiblefurniture.furniture.FurnitureType;
+import net.tfminecraft.interactiblefurniture.furniture.PlacedFurnitureMap;
 import net.tfminecraft.interactiblefurniture.furniture.SlotDefinition;
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurniturePlacementHandler;
 import net.tfminecraft.interactiblefurniture.manager.handlers.FurnitureBreakHandler;
@@ -61,7 +62,7 @@ import net.tfminecraft.interactiblefurniture.utils.CoordinateUtils;
 public class FurnitureManager implements Listener {
     private Database database;
     private final HashMap<Player, Long> cooldown = new HashMap<>();
-    private final Map<UUID, Furniture> placed = new HashMap<>();
+    private final PlacedFurnitureMap placed = new PlacedFurnitureMap();
     private final Set<Database.ChunkKey> dirtyChunks = new HashSet<>();
     /** Carried records whose removal could not be written yet, by chunk. */
     private final Map<Database.ChunkKey, Set<UUID>> pendingCarriedRecords = new HashMap<>();
@@ -593,7 +594,7 @@ public class FurnitureManager implements Listener {
         // Collect furniture in this chunk. A piece carried out of it is saved
         // too, so its crash-recovery record is not overwritten.
         Set<Furniture> inChunk = new HashSet<>();
-        for (Furniture f : placed.values()) {
+        for (Furniture f : placed.inChunk(key)) {
             if (key.equals(Database.ChunkKey.fromLocation(f.getLoc()))) {
                 inChunk.add(f);
             }
@@ -619,15 +620,15 @@ public class FurnitureManager implements Listener {
     }
 
     /**
-     * Compares block coordinates instead of calling {@code getChunk()}, which
-     * looks up (and if needed loads) the chunk of every placed piece.
+     * Reads the chunk index, then compares block coordinates instead of calling
+     * {@code getChunk()}, which looks up (and if needed loads) a piece's chunk.
      */
     private Set<Furniture> getFurnitureInChunk(Chunk chunk, boolean includeCarried) {
         Set<Furniture> set = new HashSet<>();
         World world = chunk.getWorld();
         int chunkX = chunk.getX();
         int chunkZ = chunk.getZ();
-        for (Furniture f : placed.values()) {
+        for (Furniture f : placed.inChunk(new Database.ChunkKey(world.getName(), chunkX, chunkZ))) {
             if (!includeCarried && f.isCarried()) continue;
             if (isInChunk(f.getLoc(), world, chunkX, chunkZ)) {
                 set.add(f);
