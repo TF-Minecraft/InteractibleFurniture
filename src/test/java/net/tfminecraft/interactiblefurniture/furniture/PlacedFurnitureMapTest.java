@@ -207,6 +207,18 @@ class PlacedFurnitureMapTest {
     }
 
     @Test
+    void onlyItsOwnPiecesCanJoinTheCarriedSet() {
+        Furniture outside = at(world, 1, 1);
+        Furniture inside = at(world, 2, 2);
+        map.put(inside.getEntityId(), inside);
+
+        map.carryChanged(outside);
+        map.carryChanged(inside);
+        assertEquals(Set.of(), map.carried());
+        assertThrows(UnsupportedOperationException.class, () -> map.carried().add(outside));
+    }
+
+    @Test
     void iteratesInTheSameOrderAsAHashMap() {
         Map<UUID, Furniture> plain = new HashMap<>();
         Map<UUID, Furniture> mixed = new LinkedHashMap<>();

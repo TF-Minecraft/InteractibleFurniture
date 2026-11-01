@@ -101,6 +101,13 @@ public class Furniture {
         }
     }
 
+    /** Tells the map whether this piece now needs ticking. Call after every write of {@code holder}. */
+    private void carryChanged() {
+        if (index != null) {
+            index.carryChanged(this);
+        }
+    }
+
     public void setOriginBlock(Location originBlockLocation, org.bukkit.block.BlockFace originBlockFace) {
         this.originBlockLocation = originBlockLocation != null ? originBlockLocation.clone() : null;
         this.originBlockFace = originBlockFace;
@@ -269,6 +276,7 @@ public class Furniture {
         originBlockLocation = null;
         removeInteractionEntity();
         holder = p;
+        carryChanged();
         persistedCarried = true;
         carriedRecordChunk = recordChunk;
 
@@ -283,6 +291,7 @@ public class Furniture {
             return;
         }
         holder = null;
+        carryChanged();
         persistedCarried = false;
         firstCarryTick = true;
         lastLoc = null;
@@ -300,6 +309,7 @@ public class Furniture {
 
         // Stop carrying
         this.holder = null;
+        carryChanged();
         this.persistedCarried = false;
 
         ItemDisplay display = (ItemDisplay) Bukkit.getEntity(entityId);
