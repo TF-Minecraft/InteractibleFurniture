@@ -131,8 +131,9 @@ public class FurnitureManager implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
+                // Only a carried piece's tick does anything, so walk just those.
                 // A tick can end a carry, which removes the piece from the map.
-                for (Furniture f : new ArrayList<>(placed.values())) {
+                for (Furniture f : new ArrayList<>(placed.carried())) {
                     f.tick();
                 }
             }

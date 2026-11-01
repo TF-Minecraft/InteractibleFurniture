@@ -26,6 +26,10 @@ import net.tfminecraft.interactiblefurniture.database.Database;
  * made through the map, its views or their iterators keeps the index current,
  * and a piece reports its own moves ({@link Furniture#setLoc} and the other
  * writes of its location). A piece's location must not be changed in place.
+ *
+ * It also keeps the pieces being carried, the only ones whose
+ * {@link Furniture#tick} does anything, so the per-tick carry loop does not
+ * walk every placed piece. A piece reports when its carry starts or ends.
  */
 public final class PlacedFurnitureMap extends AbstractMap<UUID, Furniture> {
 
@@ -33,6 +37,9 @@ public final class PlacedFurnitureMap extends AbstractMap<UUID, Furniture> {
     /** Each indexed piece, compared by identity, with its chunk and the number of keys it is under. */
     private final Map<Furniture, Indexed> indexed = new IdentityHashMap<>();
     private final Map<Database.ChunkKey, Set<Furniture>> byChunk = new HashMap<>();
+    /** The indexed pieces that are being carried, by identity. */
+    private final Set<Furniture> carried = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<Furniture> carriedView = Collections.unmodifiableSet(carried);
     private Set<Map.Entry<UUID, Furniture>> entrySet;
     private Set<UUID> keySet;
     private Collection<Furniture> values;
@@ -49,6 +56,27 @@ public final class PlacedFurnitureMap extends AbstractMap<UUID, Furniture> {
     public Collection<Furniture> inChunk(Database.ChunkKey chunk) {
         Set<Furniture> found = byChunk.get(chunk);
         return found == null ? Set.of() : Collections.unmodifiableSet(found);
+    }
+
+    /**
+     * The pieces in this map that are being carried, as a read-only live
+     * view: exactly the values whose {@link Furniture#isCarried} is true.
+     * Copy it before ticking them, since a tick can end a carry.
+     */
+    public Set<Furniture> carried() {
+        return carriedView;
+    }
+
+    /** Called by a piece after its carry started or ended. */
+    void carryChanged(Furniture furniture) {
+        if (!indexed.containsKey(furniture)) {
+            return;
+        }
+        if (furniture.isCarried()) {
+            carried.add(furniture);
+        } else {
+            carried.remove(furniture);
+        }
     }
 
     /** The chunk a location is in, as {@link Database.ChunkKey#fromLocation} names it, or null. */
@@ -94,6 +122,9 @@ public final class PlacedFurnitureMap extends AbstractMap<UUID, Furniture> {
             indexed.put(furniture, entry);
             bucket(entry.chunk, furniture);
             furniture.index = this;
+            if (furniture.isCarried()) {
+                carried.add(furniture);
+            }
         }
         entry.keys++;
     }
@@ -105,6 +136,7 @@ public final class PlacedFurnitureMap extends AbstractMap<UUID, Furniture> {
         }
         indexed.remove(furniture);
         unbucket(entry.chunk, furniture);
+        carried.remove(furniture);
         if (furniture.index == this) {
             furniture.index = null;
         }
@@ -174,6 +206,7 @@ public final class PlacedFurnitureMap extends AbstractMap<UUID, Furniture> {
         }
         indexed.clear();
         byChunk.clear();
+        carried.clear();
     }
 
     @Override
