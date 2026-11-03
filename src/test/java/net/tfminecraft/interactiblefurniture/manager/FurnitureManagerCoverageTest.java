@@ -434,6 +434,73 @@ class FurnitureManagerCoverageTest extends FurnitureTestServer {
         assertEquals(List.of(Material.BARREL), droppedItems());
     }
 
+    /** The left-click pick before the origin test moved ahead of the type lookup, kept to compare against. */
+    private Furniture previousLeftClickPick(Block clicked, BlockFace face) {
+        for (Furniture f : manager.getPlacedFurniture().values()) {
+            for (Block b : f.getBarrierBlocks()) {
+                if (b.equals(clicked)) return f;
+            }
+            FurnitureType ft = f.getType();
+            if (ft == null || ft.isSolid()) continue;
+            if (f.matchesOrigin(clicked, face)) return f;
+        }
+        return null;
+    }
+
+    @Test
+    void leftClickOnAnOriginSharedByManyPiecesPunchesTheSamePieceAsBefore() throws Exception {
+        String solid = solidType();
+        Block origin = ground(4, 4);
+        Block barrier = world.getBlockAt(4, 65, 4);
+        barrier.setType(Material.BARRIER);
+        // Pieces sharing one origin block, as nested displays and stacked pieces do: solid, unknown type,
+        // another face, a solid one whose barrier is elsewhere, and two ordinary pieces.
+        model(solid, 4, 4);
+        model("unknown-type", 4, 4);
+        Furniture sideways = model(CRATE, 4, 4);
+        sideways.setOriginBlock(origin.getLocation(), BlockFace.NORTH);
+        model(solid, 4, 4).addBarrierBlock(world.getBlockAt(9, 65, 9));
+        model(CRATE, 4, 4);
+        model(CRATE, 4, 4);
+        List<FurniturePunchEvent> seen = new ArrayList<>();
+        listen(FurniturePunchEvent.class, seen::add);
+
+        Furniture expected = previousLeftClickPick(origin, BlockFace.UP);
+        assertNotNull(expected);
+        manager.onPlayerLeftClick(left(player, Action.LEFT_CLICK_BLOCK, origin));
+        assertEquals(List.of(expected), seen.stream().map(FurniturePunchEvent::getFurniture).toList());
+
+        // A barrier on the clicked block wins over origins in the same walk, in the same order as before.
+        Furniture walled = model(solid, 4, 4);
+        walled.addBarrierBlock(origin);
+        seen.clear();
+        Furniture next = previousLeftClickPick(origin, BlockFace.UP);
+        // Another player, so the first punch's cooldown does not swallow this one.
+        manager.onPlayerLeftClick(left(server.addPlayer(), Action.LEFT_CLICK_BLOCK, origin));
+        assertEquals(List.of(next), seen.stream().map(FurniturePunchEvent::getFurniture).toList());
+    }
+
+    @Test
+    void leftClickOnAnOriginOnlySolidUnknownOrOtherFacePiecesShareIsIgnored() throws Exception {
+        String solid = solidType();
+        Block origin = ground(4, 4);
+        model(solid, 4, 4);
+        model("unknown-type", 4, 4);
+        Furniture sideways = model(CRATE, 4, 4);
+        sideways.setOriginBlock(origin.getLocation(), BlockFace.NORTH);
+        List<FurniturePunchEvent> seen = new ArrayList<>();
+        listen(FurniturePunchEvent.class, seen::add);
+        // Nothing on the block: the click falls through to the entity ray, which hits nothing.
+        PlayerInteractEvent event = left(rayPlayer(null), Action.LEFT_CLICK_BLOCK, origin);
+
+        assertNull(previousLeftClickPick(origin, BlockFace.UP));
+        manager.onPlayerLeftClick(event);
+
+        assertTrue(seen.isEmpty());
+        assertNotEquals(Event.Result.DENY, event.useInteractedBlock());
+        assertEquals(3, manager.getPlacedFurniture().size());
+    }
+
     @Test
     void leftClickingAnUnrelatedBlockLeavesBarrierAndOrdinaryFurnitureIntact() throws Exception {
         Furniture solid = model(solidType(), 4, 4);

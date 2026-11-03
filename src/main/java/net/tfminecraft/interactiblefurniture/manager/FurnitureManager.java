@@ -152,6 +152,9 @@ public class FurnitureManager implements Listener {
     }
 
     private boolean isValidInteraction(Furniture f, Block clicked, BlockFace face) {
+        // A piece whose barriers and origin both miss the click is invalid whatever its type,
+        // so the type lookup only runs for pieces at the clicked block.
+        if (!f.matchesOrigin(clicked, face) && !f.getBarrierBlocks().contains(clicked)) return false;
         FurnitureType type = f.getType();
         if (type == null) return false;
 
@@ -405,9 +408,10 @@ public class FurnitureManager implements Listener {
         if (e.getAction() == Action.LEFT_CLICK_BLOCK) {
             Block clicked = e.getClickedBlock();
             if (clicked != null) {
-                for (Map.Entry<UUID, Furniture> en : placed.entrySet()) {
-                    Furniture f = en.getValue();
-
+                // Same pieces in the same order as before; only the cheap block test now comes
+                // before the type lookup, which only decides whether an origin hit counts.
+                BlockFace face = e.getBlockFace();
+                for (Furniture f : placed.values()) {
                     for (Block b : f.getBarrierBlocks()) {
                         if (b.equals(clicked)) {
                             punchThenBreak(f, p, "barrier-punched");
@@ -416,14 +420,13 @@ public class FurnitureManager implements Listener {
                         }
                     }
 
+                    if (!f.matchesOrigin(clicked, face)) continue;
                     FurnitureType ft = f.getType();
                     if (ft == null || ft.isSolid()) continue;
 
-                    if (f.matchesOrigin(clicked, e.getBlockFace())) {
-                        punchThenBreak(f, p, "attached-block-hit");
-                        e.setCancelled(true);
-                        return;
-                    }
+                    punchThenBreak(f, p, "attached-block-hit");
+                    e.setCancelled(true);
+                    return;
                 }
             }
         }
